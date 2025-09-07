@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, OnInit, signal, Pipe, PipeTransform, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, OnInit, signal, Pipe, PipeTransform, inject, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -12,6 +12,7 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSelectModule } from '@angular/material/select'; // Import MatSelectModule
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Observable } from 'rxjs';
 import { startWith, map } from 'rxjs/operators';
@@ -64,6 +65,7 @@ declare namespace Dexie {
     }
     interface WhereClause {
         startsWithIgnoreCase(key: string): Collection;
+        anyOf(keys: string[]): Collection;
     }
     interface Collection {
         limit(count: number): Collection;
@@ -71,21 +73,20 @@ declare namespace Dexie {
     }
 }
 
-// Structure for an individual card face
+// --- Data Structures ---
 interface CardFace {
   name: string;
-  image_uris?: { normal?: string; };
+  image_uris?: { normal?: string; art_crop?: string; };
   type_line?: string;
   mana_cost?: string;
   oracle_text?: string;
 }
 
-// Card document structure, now including card_faces and frame_effects
 interface CardDocument {
   id: string;
   name:string;
-  name_lowercase?: string; // Add lowercase name for unique indexing
-  image_uris?: { normal?: string; };
+  name_lowercase?: string;
+  image_uris?: { normal?: string; art_crop?: string; };
   type_line?: string;
   mana_cost?: string;
   cmc?: number;
@@ -98,6 +99,24 @@ interface CardDocument {
   card_faces?: CardFace[];
   frame_effects?: string[];
 }
+
+interface Pack {
+  id: string;
+  name: string;
+  size: number;
+  cards: CardDocument[];
+  faceCardId?: string;
+}
+
+// New interface for leaner storage
+interface PersistedPack {
+  id: string;
+  name: string;
+  size: number;
+  cardIds: string[];
+  faceCardId?: string;
+}
+
 
 @Component({
   selector: 'app-root',
@@ -117,7 +136,8 @@ interface CardDocument {
     MatAutocompleteModule,
     MatListModule,
     MatIconModule,
-    ManaSymbolPipe // Import the new pipe
+    MatSelectModule, // Add MatSelectModule here
+    ManaSymbolPipe
   ],
   templateUrl: './trappist.component.html',
   styleUrls: ['./trappist.component.scss'],
@@ -138,12 +158,18 @@ export class App implements OnInit {
   // --- Card Search & List State ---
   searchControl = new FormControl('');
   suggestions = signal<CardDocument[]>([]);
-  addedCards = signal<CardDocument[]>([]);
   hoveredCard = signal<CardDocument | null>(null);
   mousePos = signal<{x: number, y: number}>({ x: 0, y: 0 });
 
+  // --- Pack Management State ---
+  packs = signal<Pack[]>([]);
+  activePackId = signal<string | null>(null);
+  @ViewChild('packsImporter') packsImporter!: ElementRef<HTMLInputElement>;
+
+
   // --- Database Properties ---
   private db: any;
+  private readonly PACKS_STORAGE_KEY = 'trappist-packs-data';
 
   constructor() {
     this.searchControl.valueChanges.pipe(
@@ -151,9 +177,13 @@ export class App implements OnInit {
       map(value => this._filter(value || ''))
     ).subscribe();
 
-    // Add mouse move listener for image preview
     document.addEventListener('mousemove', (event) => {
       this.mousePos.set({ x: event.clientX, y: event.clientY });
+    });
+
+    // Effect to automatically save packs to localStorage whenever they change
+    effect(() => {
+      this.savePacksToStorage(this.packs());
     });
   }
 
@@ -164,20 +194,17 @@ export class App implements OnInit {
       return;
     }
     if (this.db?.cards) {
-       // First, get all potential name matches from the database
        const results = await this.db.cards
                             .where('name')
                             .startsWithIgnoreCase(filterValue)
                             .toArray();
 
-       // Then, filter out any cards that are tokens or schemes in JavaScript
        const filteredResults = results.filter((card: CardDocument) => {
             const typeLine = card.type_line?.toLowerCase();
-            if (!typeLine) return true; // Keep cards with no type line
+            if (!typeLine) return true;
             return !typeLine.startsWith('token') && !typeLine.includes('scheme');
        });
 
-       // Finally, limit the results to the top 10 and update the suggestions
        this.suggestions.set(filteredResults.slice(0, 10));
     }
   }
@@ -211,7 +238,6 @@ export class App implements OnInit {
         public cards: Dexie.Table<CardDocument, string>;
         constructor() {
           super('TrappistDB');
-          // Version 4: Use a case-insensitive unique index on a dedicated lowercase field
           this.version(4).stores({
             cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords',
           });
@@ -241,6 +267,7 @@ export class App implements OnInit {
         this.status.set(`Local data found! Ready to build.`);
         this.dataExists.set(true);
         this.cardCount.set(count);
+        await this.loadPacksFromStorage();
       } else {
         this.status.set('No local card data. Ready to proceed.');
         this.dataExists.set(false);
@@ -257,7 +284,7 @@ export class App implements OnInit {
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    this.fileErrorDetails.set(null); // Clear previous errors
+    this.fileErrorDetails.set(null);
     if (input.files && input.files.length > 0) {
       this.selectedFile.set(input.files[0]);
     } else {
@@ -268,18 +295,17 @@ export class App implements OnInit {
   async downloadAndStoreData() {
     if (!this.jsonUrl()) return;
     this.isLoading.set(true);
-    this.fileErrorDetails.set(null); // Clear previous errors
+    this.fileErrorDetails.set(null);
     this.status.set('Downloading data...');
     try {
       const response = await fetch(this.jsonUrl());
       if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       const jsonData = await response.json();
       await this.storeDataInDb(jsonData);
+      await this.loadPacksFromStorage(); // Initialize packs after data is loaded
     } catch (error) {
       this.status.set('Failed to download or store data.');
-      if (error instanceof Error) {
-        this.fileErrorDetails.set(error.message);
-      }
+      if (error instanceof Error) this.fileErrorDetails.set(error.message);
       console.error('Download/Storage Error:', error);
       this.dataExists.set(false);
     } finally {
@@ -293,7 +319,7 @@ export class App implements OnInit {
 
     this.isLoading.set(true);
     this.status.set(`Reading file: ${file.name}...`);
-    this.fileErrorDetails.set(null); // Clear previous errors
+    this.fileErrorDetails.set(null);
     const reader = new FileReader();
 
     reader.onload = async (e: ProgressEvent<FileReader>) => {
@@ -302,13 +328,11 @@ export class App implements OnInit {
         if (typeof text !== 'string') throw new Error('File could not be read as text.');
         const jsonData = JSON.parse(text);
         await this.storeDataInDb(jsonData);
+        await this.loadPacksFromStorage(); // Initialize packs after data is loaded
       } catch (error) {
         this.status.set('Error reading or parsing file.');
-        if (error instanceof Error) {
-            this.fileErrorDetails.set(error.message);
-        } else {
-            this.fileErrorDetails.set(String(error));
-        }
+        if (error instanceof Error) this.fileErrorDetails.set(error.message);
+        else this.fileErrorDetails.set(String(error));
         console.error('File Read/Parse Error:', error);
         this.dataExists.set(false);
       } finally {
@@ -337,43 +361,30 @@ export class App implements OnInit {
 
     const filteredData = rawData.filter(card => card.reprint === false);
 
-    // Add a lowercase name property to each card for case-insensitive indexing
     filteredData.forEach(card => {
-        if (card.name) {
-            card.name_lowercase = card.name.toLowerCase();
-        }
+        if (card.name) card.name_lowercase = card.name.toLowerCase();
     });
 
-    // Group cards by name (case-insensitively) to identify all duplicates
     const cardNameGroups = new Map<string, CardDocument[]>();
     for (const card of filteredData) {
-        if (!card.name_lowercase) continue; // Skip cards without a name
+        if (!card.name_lowercase) continue;
         const nameKey = card.name_lowercase;
-        if (!cardNameGroups.has(nameKey)) {
-            cardNameGroups.set(nameKey, []);
-        }
+        if (!cardNameGroups.has(nameKey)) cardNameGroups.set(nameKey, []);
         cardNameGroups.get(nameKey)!.push(card);
     }
 
     const uniqueDataToStore: CardDocument[] = [];
     const conflictNames: string[] = [];
 
-    // Resolve conflicts and build the final list to store
     for (const [name, cards] of cardNameGroups.entries()) {
         if (cards.length === 1) {
             uniqueDataToStore.push(cards[0]);
         } else {
-            // A conflict was found for this name
-            conflictNames.push(cards[0].name); // Use original casing for display
-
-            // Apply preference logic: find the best card among duplicates
+            conflictNames.push(cards[0].name);
             let preferredCard = cards[0];
             for (let i = 1; i < cards.length; i++) {
                 const currentIsExtended = preferredCard.frame_effects?.includes('extendedart') ?? false;
                 const nextIsExtended = cards[i].frame_effects?.includes('extendedart') ?? false;
-
-                // If the currently preferred card is extended art and the next one is not,
-                // the next one becomes preferred.
                 if (currentIsExtended && !nextIsExtended) {
                     preferredCard = cards[i];
                 }
@@ -382,17 +393,15 @@ export class App implements OnInit {
         }
     }
 
-    // Report conflicts to the user, if any were found
     if (conflictNames.length > 0) {
-        const errorMessage = `Uniqueness conflicts were detected and automatically resolved for the following ${conflictNames.length} card(s):\n\n- ${conflictNames.join('\n- ')}`;
+        const errorMessage = `Uniqueness conflicts were detected and automatically resolved for ${conflictNames.length} card(s):\n\n- ${conflictNames.join('\n- ')}`;
         this.fileErrorDetails.set(errorMessage);
     } else {
-        this.fileErrorDetails.set(null); // Clear previous errors if none found
+        this.fileErrorDetails.set(null);
     }
 
     this.status.set(`Data processed. Storing ${uniqueDataToStore.length} unique, non-reprint cards...`);
 
-    // This bulkAdd operation should now be safe from constraint errors
     await this.db.cards.bulkAdd(uniqueDataToStore);
 
     const count = await this.db.cards.count();
@@ -410,7 +419,8 @@ export class App implements OnInit {
         this.dataExists.set(false);
         this.cardCount.set(0);
         this.selectedFile.set(null);
-        this.addedCards.set([]); // Clear the card list as well
+        this.packs.set([]); // Also clear packs
+        localStorage.removeItem(this.PACKS_STORAGE_KEY);
     } catch (error) {
         this.status.set('Error clearing database.');
         console.error('Failed to clear database', error);
@@ -420,19 +430,186 @@ export class App implements OnInit {
     }
   }
 
-  addCardToList(card: CardDocument) {
-    this.addedCards.update(currentCards => [...currentCards, card]);
+  // --- Pack Management Methods ---
+
+  addPack() {
+    const newPack: Pack = {
+      id: crypto.randomUUID(),
+      name: `New Pack ${this.packs().length + 1}`,
+      size: 20,
+      cards: []
+    };
+    this.packs.update(currentPacks => [...currentPacks, newPack]);
+    this.activePackId.set(newPack.id);
+  }
+
+  removePack(packId: string) {
+    this.packs.update(packs => packs.filter(p => p.id !== packId));
+    if (this.activePackId() === packId) {
+      this.activePackId.set(this.packs()[0]?.id || null);
+    }
+  }
+
+  setActivePack(packId: string) {
+    this.activePackId.set(packId);
+  }
+
+  addCardToActivePack(card: CardDocument) {
+    const packId = this.activePackId();
+    if (!packId) {
+      alert('Please select a pack first!');
+      return;
+    }
+    this.packs.update(packs => {
+      return packs.map(pack => {
+        if (pack.id === packId) {
+          if (pack.cards.length >= pack.size) {
+             alert(`Pack "${pack.name}" is full.`);
+             return pack;
+          }
+          const updatedCards = [...pack.cards, card];
+          // If this is the first card, make it the face card
+          const faceCardId = updatedCards.length === 1 ? card.id : pack.faceCardId;
+          return { ...pack, cards: updatedCards, faceCardId };
+        }
+        return pack;
+      });
+    });
     this.searchControl.setValue('');
     this.suggestions.set([]);
   }
 
-  onSuggestionSelected(event: any) {
-    this.addCardToList(event.option.value);
+  removeCardFromPack(packId: string, cardIndex: number) {
+    this.packs.update(packs => {
+      return packs.map(pack => {
+        if (pack.id === packId) {
+          const cardToRemove = pack.cards[cardIndex];
+          const updatedCards = pack.cards.filter((_, i) => i !== cardIndex);
+          // If the removed card was the face card, unset it or pick a new one
+          let faceCardId = pack.faceCardId;
+          if(faceCardId === cardToRemove.id) {
+            faceCardId = updatedCards[0]?.id || undefined;
+          }
+          return { ...pack, cards: updatedCards, faceCardId };
+        }
+        return pack;
+      });
+    });
   }
 
-  removeCardFromList(index: number) {
-    this.addedCards.update(currentCards => currentCards.filter((_, i) => i !== index));
+  setFaceCard(packId: string, cardId: string) {
+    this.packs.update(packs => packs.map(pack =>
+      pack.id === packId ? { ...pack, faceCardId: cardId } : pack
+    ));
   }
+
+  onSuggestionSelected(event: any) {
+    this.addCardToActivePack(event.option.value);
+  }
+
+  // --- Persistence Methods ---
+
+  private dehydratePacks(packs: Pack[]): PersistedPack[] {
+    return packs.map(pack => ({
+      id: pack.id,
+      name: pack.name,
+      size: pack.size,
+      cardIds: pack.cards.map(card => card.id),
+      faceCardId: pack.faceCardId,
+    }));
+  }
+
+  private async hydratePacks(persistedPacks: PersistedPack[]): Promise<Pack[]> {
+    const allCardIds = [...new Set(persistedPacks.flatMap(p => p.cardIds))];
+    if (allCardIds.length === 0) {
+      return persistedPacks.map(p => ({ ...p, cards: [] }));
+    }
+
+    const cardDocs = await this.db.cards.where('id').anyOf(allCardIds).toArray();
+    const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.id, c]));
+
+    return persistedPacks.map(pPack => ({
+      ...pPack,
+      cards: pPack.cardIds.map(id => cardMap.get(id)!).filter(Boolean),
+    }));
+  }
+
+  private savePacksToStorage(packs: Pack[]) {
+    try {
+      const persistedPacks = this.dehydratePacks(packs);
+      localStorage.setItem(this.PACKS_STORAGE_KEY, JSON.stringify(persistedPacks));
+    } catch (e) {
+      console.error('Failed to save packs to localStorage', e);
+    }
+  }
+
+  private async loadPacksFromStorage() {
+    try {
+      const storedPacksJSON = localStorage.getItem(this.PACKS_STORAGE_KEY);
+      if (storedPacksJSON) {
+        const persistedPacks: PersistedPack[] = JSON.parse(storedPacksJSON);
+        const hydratedPacks = await this.hydratePacks(persistedPacks);
+        this.packs.set(hydratedPacks);
+      } else {
+        this.addPack();
+      }
+      if (!this.activePackId() && this.packs().length > 0) {
+        this.activePackId.set(this.packs()[0].id);
+      }
+    } catch (e) {
+      console.error('Failed to load packs from localStorage', e);
+      this.packs.set([]);
+      this.addPack();
+    }
+  }
+
+  exportPacks() {
+    const persistedPacks = this.dehydratePacks(this.packs());
+    const dataStr = JSON.stringify(persistedPacks, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = 'trappist_packs.json';
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  }
+
+  triggerPacksImport() {
+    this.packsImporter.nativeElement.click();
+  }
+
+  importPacks(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = async (e: ProgressEvent<FileReader>) => {
+      try {
+        const text = e.target?.result;
+        if (typeof text !== 'string') throw new Error('Could not read imported file.');
+        const importedPersistedPacks: PersistedPack[] = JSON.parse(text);
+
+        if (Array.isArray(importedPersistedPacks) && importedPersistedPacks.every(p => p.id && p.name && p.cardIds)) {
+           const hydratedPacks = await this.hydratePacks(importedPersistedPacks);
+           this.packs.set(hydratedPacks);
+           this.activePackId.set(hydratedPacks[0]?.id || null);
+           alert(`Successfully imported ${hydratedPacks.length} pack(s).`);
+        } else {
+           throw new Error('Imported file has an invalid format. Expected cardIds array.');
+        }
+      } catch (error) {
+         if (error instanceof Error) alert(`Import failed: ${error.message}`);
+         else alert('An unknown error occurred during import.');
+         console.error(error);
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+
+  // --- UI Helpers ---
 
   showCardImage(card: CardDocument) {
     this.hoveredCard.set(card);
@@ -440,6 +617,24 @@ export class App implements OnInit {
 
   hideCardImage() {
     this.hoveredCard.set(null);
+  }
+
+  getFaceCardArtCrop(pack: Pack): string | undefined {
+    if (!pack.faceCardId) {
+      return undefined;
+    }
+    const faceCard = pack.cards.find(c => c.id === pack.faceCardId);
+    if (!faceCard) {
+      return undefined;
+    }
+
+    // If card_faces exist, use the art_crop from the first face
+    if (faceCard.card_faces && faceCard.card_faces.length > 0) {
+      return faceCard.card_faces[0].image_uris?.art_crop;
+    }
+
+    // Otherwise, use the art_crop from the card itself
+    return faceCard.image_uris?.art_crop;
   }
 }
 

@@ -1,175 +1,198 @@
-<div class="main-container">
-  <mat-card class="content-wrapper">
-    <mat-card-header class="header">
-      <mat-card-title class="title">Trappist-1 Deck Builder</mat-card-title>
-      <mat-card-subtitle class="subtitle">Local Card Database Management with IndexedDB</mat-card-subtitle>
-    </mat-card-header>
+<mat-toolbar color="primary" class="main-toolbar">
+  <span>Trappist Deck Builder</span>
+</mat-toolbar>
 
-    <mat-toolbar class="status-display" [ngClass]="{
-      'status-success': status().includes('Successfully') || status().includes('found') || status().includes('Ready'),
-      'status-error': status().includes('Error') || status().includes('Failed') || status().includes('delet'),
-      'status-warning': !status().includes('Success') && !status().includes('Error')
-    }">
-      <span>Status: {{ status() }}</span>
-    </mat-toolbar>
-
-    <mat-card-content>
-      <!-- DATA LOADER UI -->
-      @if (!dataExists()) {
-        @if (!isChecking()) {
-          <div>
-            <mat-button-toggle-group [(ngModel)]="inputMode" aria-label="Input Mode" class="input-mode-toggle">
+<div class="page-container">
+  @if (!dataExists()) {
+    <mat-card class="content-card">
+      <mat-card-header>
+        <mat-card-title>Load Card Data</mat-card-title>
+        <mat-card-subtitle>{{ status() }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        @if (isChecking()) {
+          <div class="spinner-container">
+            <mat-progress-spinner mode="indeterminate"></mat-progress-spinner>
+          </div>
+        } @else {
+          <div class="data-controls">
+            <mat-button-toggle-group [(ngModel)]="inputMode" aria-label="Input Mode">
               <mat-button-toggle value="url">From URL</mat-button-toggle>
-              <mat-button-toggle value="file">From Local File</mat-button-toggle>
+              <mat-button-toggle value="file">From File</mat-button-toggle>
             </mat-button-toggle-group>
 
             @if (inputMode() === 'url') {
-              <div class="input-section">
-                <p>Provide the URL to download and store the collection.</p>
-                <div class="url-input-group">
-                  <mat-form-field appearance="outline" class="flex-grow">
-                    <mat-label>JSON File URL</mat-label>
-                    <input matInput #urlInput (input)="jsonUrl.set(urlInput.value)" [value]="jsonUrl()">
-                  </mat-form-field>
-                  <button mat-raised-button color="primary" (click)="downloadAndStoreData()" [disabled]="isLoading() || !jsonUrl()">
-                    @if (isLoading()) {
-                      <mat-spinner diameter="20" class="spinner"></mat-spinner>
-                    }
-                    {{ isLoading() ? 'Processing...' : 'Download & Store' }}
-                  </button>
-                </div>
+              <div class="input-row">
+                <mat-form-field class="full-width">
+                  <mat-label>JSON Data URL</mat-label>
+                  <input matInput [ngModel]="jsonUrl()" (ngModelChange)="jsonUrl.set($event)">
+                </mat-form-field>
+                <button mat-raised-button color="primary" (click)="downloadAndStoreData()" [disabled]="isLoading()">
+                  {{ isLoading() ? 'Downloading...' : 'Download Data' }}
+                </button>
               </div>
-            }
-
-            @if (inputMode() === 'file') {
-              <div class="input-section file-input-section">
-                <p>Select a JSON file from your local system to upload.</p>
-                <input type="file" hidden #fileInput (change)="onFileSelected($event)">
-                <button mat-stroked-button (click)="fileInput.click()">
-                  <mat-icon>attach_file</mat-icon>
-                  Choose File
-                </button>
-                @if (selectedFile()) {
-                  <div class="selected-file-info">
-                    Selected: <span>{{ selectedFile()?.name }} ({{ (selectedFile()?.size || 0) / 1024 | number:'1.1-2' }} KB)</span>
-                  </div>
-                }
-                <button mat-raised-button color="primary" (click)="uploadAndStoreData()" [disabled]="isLoading() || !selectedFile()">
-                   @if (isLoading()) {
-                    <mat-spinner diameter="20" class="spinner"></mat-spinner>
+            } @else {
+              <div class="input-row">
+                 <button mat-stroked-button color="primary" (click)="fileInput.click()">
+                    <mat-icon>upload_file</mat-icon>
+                    Choose File
+                  </button>
+                  <input hidden (change)="onFileSelected($event)" #fileInput type="file" accept=".json">
+                  @if (selectedFile(); as file) {
+                    <span class="file-name">{{ file.name }}</span>
                   }
-                  {{ isLoading() ? 'Processing...' : 'Upload & Store' }}
-                </button>
-
-                @if (fileErrorDetails()) {
-                  <div class="error-details">
-                    <h4 class="error-title">
-                      <mat-icon>error_outline</mat-icon>
-                      <span>File Processing Error</span>
-                    </h4>
-                    <pre class="error-message">{{ fileErrorDetails() }}</pre>
-                  </div>
-                }
+                  <button mat-raised-button color="primary" (click)="uploadAndStoreData()" [disabled]="!selectedFile() || isLoading()">
+                     {{ isLoading() ? 'Uploading...' : 'Upload Data' }}
+                  </button>
               </div>
             }
           </div>
         }
-      }
-
-      <!-- CARD SEARCH AND LIST UI -->
-      @if (dataExists()) {
-        <div>
-          <div class="data-loaded-info">
-              <div class="info-text">
-                  <mat-icon color="primary">check_circle</mat-icon>
-                  <span>Data is stored locally in IndexedDB!</span>
-              </div>
-            <p class="card-count">{{ cardCount() }} cards in database</p>
-            <button mat-stroked-button color="warn" (click)="clearDatabase()" [disabled]="isLoading()">
-              Clear Database
-            </button>
-          </div>
-
-          <mat-form-field class="search-area" appearance="outline">
-              <mat-label>Search for a Card</mat-label>
-              <input type="text"
-                     placeholder="Type a card name..."
-                     matInput
-                     [formControl]="searchControl"
-                     [matAutocomplete]="auto">
-              <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="onSuggestionSelected($event)">
-                @for(card of suggestions(); track card.id) {
-                  <mat-option [value]="card">
-                    <div class="suggestion-item">
-                      <span>{{ card.name }}</span>
-                      <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span>
-                    </div>
-                  </mat-option>
-                }
-              </mat-autocomplete>
+        @if (isLoading()) {
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+        }
+        @if (fileErrorDetails(); as error) {
+            <div class="error-details">{{ error }}</div>
+        }
+      </mat-card-content>
+    </mat-card>
+  } @else {
+    <div class="builder-section">
+      <mat-card class="content-card">
+        <mat-card-header class="search-header">
+           <mat-form-field class="full-width">
+            <mat-label>Search for a card to add</mat-label>
+            <input type="text"
+                   matInput
+                   [formControl]="searchControl"
+                   [matAutocomplete]="auto">
+            <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="onSuggestionSelected($event)">
+              @for (suggestion of suggestions(); track suggestion.id) {
+                <mat-option [value]="suggestion">
+                  <div class="suggestion-item">
+                      <span>{{ suggestion.name }}</span>
+                      <span class="mana-cost" [innerHTML]="suggestion.mana_cost | manaSymbol"></span>
+                  </div>
+                </mat-option>
+              }
+            </mat-autocomplete>
           </mat-form-field>
-
-          <h3 class="list-header">Card List ({{ addedCards().length }})</h3>
-          <mat-list role="list" class="card-list-section">
-            @for(card of addedCards(); track $index) {
-              <mat-list-item role="listitem" class="card-item" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
-                <div class="card-details">
-                  <!-- Check for card faces -->
-                  @if (card.card_faces && card.card_faces.length > 0) {
-                    <div class="card-face-container">
-                      @for(face of card.card_faces; track $index) {
-                        <div class="card-face">
-                          <h4 class="card-name">{{ face.name }} <span class="mana-cost" [innerHTML]="face.mana_cost | manaSymbol"></span></h4>
-                          <p class="type-line">{{ face.type_line }}</p>
-                          <p class="oracle-text" [innerHTML]="face.oracle_text | manaSymbol"></p>
-                        </div>
-                      }
-                    </div>
-                  } @else {
-                    <!-- Original single-face display -->
-                    <h4 class="card-name">{{ card.name }} <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span></h4>
-                    <p class="type-line">{{ card.type_line }}</p>
-                    <p class="oracle-text" [innerHTML]="card.oracle_text | manaSymbol"></p>
+           <mat-form-field class="active-pack-selector">
+                <mat-label>Active Pack</mat-label>
+                <mat-select [value]="activePackId()" (valueChange)="setActivePack($event)">
+                  @for (pack of packs(); track pack.id) {
+                    <mat-option [value]="pack.id">{{ pack.name }}</mat-option>
                   }
-                </div>
-                <button mat-icon-button color="warn" (click)="removeCardFromList($index)" aria-label="Remove card from list">
-                  <mat-icon>remove_circle</mat-icon>
-                </button>
-              </mat-list-item>
-            }
-          </mat-list>
-          @if(addedCards().length === 0) {
-              <div class="empty-list-placeholder">
-                <p>Your list is empty.</p>
-                <p>Use the search bar above to find and add cards.</p>
-              </div>
-          }
+                </mat-select>
+            </mat-form-field>
+        </mat-card-header>
+         <mat-card-content class="button-row">
+            <button mat-stroked-button color="primary" (click)="addPack()">
+              <mat-icon>add_circle_outline</mat-icon> Add New Pack
+            </button>
+            <button mat-stroked-button (click)="exportPacks()">
+              <mat-icon>download</mat-icon> Export Packs
+            </button>
+            <button mat-stroked-button (click)="triggerPacksImport()">
+              <mat-icon>upload</mat-icon> Import Packs
+            </button>
+             <input type="file" class="hidden-file-input" #packsImporter accept=".json" (change)="importPacks($event)">
+            <button mat-stroked-button color="warn" (click)="clearDatabase()">
+              <mat-icon>delete_forever</mat-icon> Clear All Data
+            </button>
+          </mat-card-content>
+      </mat-card>
+
+      <div class="packs-container">
+        @for (pack of packs(); track pack.id) {
+          <mat-card class="pack-card" [class.active-pack]="pack.id === activePackId()">
+            <mat-card-header (click)="setActivePack(pack.id)">
+               <img mat-card-avatar [src]="getFaceCardArtCrop(pack)" *ngIf="getFaceCardArtCrop(pack)" alt="Face card art">
+              <mat-card-title>
+                 <mat-form-field class="pack-name-input">
+                    <input matInput [ngModel]="pack.name" (ngModelChange)="pack.name = $event">
+                  </mat-form-field>
+              </mat-card-title>
+              <mat-card-subtitle class="pack-meta">
+                <span class="pack-count">{{ pack.cards.length }} / {{ pack.size }}</span>
+                 <button mat-icon-button color="warn" (click)="$event.stopPropagation(); removePack(pack.id)">
+                    <mat-icon>delete</mat-icon>
+                  </button>
+              </mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              @if (pack.cards.length > 0) {
+                <mat-list>
+                  @for (card of pack.cards; track $index) {
+                    <mat-list-item
+                        (mouseenter)="showCardImage(card)"
+                        (mouseleave)="hideCardImage()"
+                        [class.is-face-card]="card.id === pack.faceCardId">
+                      <div class="card-list-item-content">
+                        <div class="card-info">
+                          <div class="card-name-mana">
+                            <span class="card-name">{{ card.name }}</span>
+                            <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span>
+                          </div>
+                          <div class="type-line">{{ card.type_line }}</div>
+                          @if(card.card_faces && card.card_faces.length > 0) {
+                            @for(face of card.card_faces; track $index){
+                                <div class="card-face-details">
+                                    <div class="card-name-mana">
+                                        <span class="card-name">{{ face.name }}</span>
+                                        <span class="mana-cost" [innerHTML]="face.mana_cost | manaSymbol"></span>
+                                    </div>
+                                    <div class="type-line">{{ face.type_line }}</div>
+                                    <p class="oracle-text" [innerHTML]="face.oracle_text | manaSymbol"></p>
+                                </div>
+                            }
+                          } @else {
+                            <p class="oracle-text" [innerHTML]="card.oracle_text | manaSymbol"></p>
+                          }
+                        </div>
+                        <div class="card-actions">
+                          <button mat-icon-button matTooltip="Set as face card" (click)="setFaceCard(pack.id, card.id)">
+                            <mat-icon>face</mat-icon>
+                          </button>
+                          <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromPack(pack.id, $index)">
+                            <mat-icon>remove_circle_outline</mat-icon>
+                          </button>
+                        </div>
+                      </div>
+                    </mat-list-item>
+                  }
+                </mat-list>
+              } @else {
+                <div class="empty-pack-message">This pack is empty. Add cards using the search bar above.</div>
+              }
+            </mat-card-content>
+          </mat-card>
+        }
+        <div class="add-pack-container">
+            <button mat-fab extended color="primary" (click)="addPack()">
+                <mat-icon>add</mat-icon>
+                Add New Pack
+            </button>
         </div>
-      }
-    </mat-card-content>
-  </mat-card>
+      </div>
+    </div>
+  }
 </div>
 
-<!-- Floating Card Image Preview -->
-@if (hoveredCard(); as card) {
-  <div class="image-preview"
-    [style.left.px]="mousePos().x + 20"
-    [style.top.px]="mousePos().y">
-    <!-- Check for card faces -->
-    @if (card.card_faces && card.card_faces.length > 0) {
-      <div class="image-preview-multiface">
-          @for(face of card.card_faces; track $index) {
-              @if(face.image_uris?.normal; as imageUrl) {
-                  <img [src]="imageUrl" alt="{{face.name}} Image" />
-              }
+
+  @if (hoveredCard(); as card) {
+    <div class="card-image-preview" [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y + 20">
+        @if (card.card_faces && card.card_faces.length > 0) {
+            @for (face of card.card_faces; track $index) {
+                @if(face.image_uris?.normal){
+                  <img [src]="face.image_uris?.normal" [alt]="face.name">
+                }
+            }
+        } @else {
+           @if(card.image_uris?.normal){
+              <img [src]="card.image_uris?.normal" [alt]="card.name">
           }
-      </div>
-    } @else {
-      <!-- Original single-image display -->
-      @if (card.image_uris?.normal; as imageUrl) {
-          <img [src]="imageUrl" alt="Card Image" />
-      }
-    }
-  </div>
-}
+        }
+    </div>
+  }
 
