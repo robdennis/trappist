@@ -1,0 +1,29 @@
+@use '@angular/material' as mat;
+
+// Include the core styles for Angular Material components. This should only be done once per application.
+@include mat.core();
+
+// Define the palettes for your theme using the Material Design palettes
+$trappist-primary: mat.define-palette(mat.$teal-palette, 700, 500, 900);
+$trappist-accent: mat.define-palette(mat.$pink-palette, A200, A100, A400);
+$trappist-warn: mat.define-palette(mat.$red-palette);
+
+// Create the theme object.
+$trappist-theme: mat.define-dark-theme((
+  color: (
+    primary: $trappist-primary,
+    accent: $trappist-accent,
+    warn: $trappist-warn,
+  ),
+  typography: mat.define-typography-config(),
+  density: 0,
+));
+
+// Apply the theme to all Angular Material components.
+@include mat.all-component-themes($trappist-theme);
+
+// Basic body styles for the dark theme
+body {
+  background-color: #303030;
+  color: #fff;
+}

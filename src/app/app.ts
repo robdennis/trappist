@@ -1,16 +1,27 @@
 import { ChangeDetectionStrategy, Component, effect, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatListModule } from '@angular/material/list';
+import { MatIconModule } from '@angular/material/icon';
+import { Observable } from 'rxjs';
+import { startWith, map } from 'rxjs/operators';
 
-// Dexie is a minimalist wrapper for IndexedDB
-// We will load it from a CDN in the component's template.
-// We declare the namespace and types here to satisfy the TypeScript compiler,
-// as it doesn't know about the script loaded in the template.
+
+// Dexie type declarations
 declare class Dexie {
     constructor(databaseName: string);
     version(versionNumber: number): { stores(schema: { [tableName: string]: string | null }): void; };
     table(tableName: string): Dexie.Table;
     readonly tables: Dexie.Table[];
-
     static addons: any[];
 }
 
@@ -23,25 +34,20 @@ declare namespace Dexie {
         clear(): Promise<void>;
         where(index: string | string[]): WhereClause;
     }
-
     interface WhereClause {
         startsWithIgnoreCase(key: string): Collection;
     }
-
     interface Collection {
         limit(count: number): Collection;
         toArray(): Promise<any[]>;
     }
 }
 
-
-// Define the structure of a card document in the database
+// Card document structure
 interface CardDocument {
-  id: string; // UUIDv4, so it's a string
+  id: string;
   name: string;
-  image_uris?: {
-    normal?: string;
-  };
+  image_uris?: { normal?: string; };
   type_line?: string;
   mana_cost?: string;
   cmc?: number;
@@ -53,12 +59,27 @@ interface CardDocument {
   reprint?: boolean;
 }
 
-
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    MatButtonModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatProgressBarModule,
+    MatProgressSpinnerModule,
+    MatToolbarModule,
+    MatButtonToggleModule,
+    MatAutocompleteModule,
+    MatListModule,
+    MatIconModule
+  ],
   templateUrl: './trappist.component.html',
+  styleUrls: ['./trappist.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App implements OnInit {
@@ -73,7 +94,7 @@ export class App implements OnInit {
   selectedFile = signal<File | null>(null);
 
   // --- Card Search & List State ---
-  searchText = signal<string>('');
+  searchControl = new FormControl('');
   suggestions = signal<CardDocument[]>([]);
   addedCards = signal<CardDocument[]>([]);
   hoveredCard = signal<CardDocument | null>(null);
@@ -83,22 +104,31 @@ export class App implements OnInit {
   private db: any;
 
   constructor() {
-    effect(async () => {
-      const search = this.searchText();
-      if(search.length < 2) {
-        this.suggestions.set([]);
-        return;
-      }
-      if (this.db?.cards) {
-         const results = await this.db.cards.where('name').startsWithIgnoreCase(search).limit(10).toArray();
-         this.suggestions.set(results);
-      }
-    });
+    this.searchControl.valueChanges.pipe(
+      startWith(''),
+      map(value => this._filter(value || ''))
+    ).subscribe();
 
     // Add mouse move listener for image preview
     document.addEventListener('mousemove', (event) => {
       this.mousePos.set({ x: event.clientX, y: event.clientY });
     });
+  }
+
+  private async _filter(value: string | CardDocument): Promise<void> {
+    const filterValue = typeof value === 'string' ? value.toLowerCase() : value.name.toLowerCase();
+    if (filterValue.length < 2) {
+      this.suggestions.set([]);
+      return;
+    }
+    if (this.db?.cards) {
+       const results = await this.db.cards.where('name').startsWithIgnoreCase(filterValue).limit(10).toArray();
+       this.suggestions.set(results);
+    }
+  }
+
+  displayFn(card: CardDocument): string {
+    return card && card.name ? card.name : '';
   }
 
   ngOnInit() {
@@ -160,7 +190,8 @@ export class App implements OnInit {
         this.dataExists.set(false);
         this.cardCount.set(0);
       }
-    } catch (error) {
+    } catch (error)
+    {
       this.status.set('Error checking local database.');
       console.error('Error accessing IndexedDB:', error);
     } finally {
@@ -265,23 +296,14 @@ export class App implements OnInit {
     }
   }
 
-  // --- New Methods for Card Search & List ---
-
-  updateSearchText(text: string) {
-    this.searchText.set(text);
-  }
-
   addCardToList(card: CardDocument) {
     this.addedCards.update(currentCards => [...currentCards, card]);
-    this.searchText.set('');
+    this.searchControl.setValue('');
     this.suggestions.set([]);
   }
 
-  addFirstSuggestion() {
-    const firstSuggestion = this.suggestions()[0];
-    if (firstSuggestion) {
-      this.addCardToList(firstSuggestion);
-    }
+  onSuggestionSelected(event: any) {
+    this.addCardToList(event.option.value);
   }
 
   removeCardFromList(index: number) {
@@ -295,15 +317,5 @@ export class App implements OnInit {
   hideCardImage() {
     this.hoveredCard.set(null);
   }
-
-  statusColor(): string {
-    const currentStatus = this.status();
-    if (currentStatus.includes('Successfully') || currentStatus.includes('found') || currentStatus.includes('Ready')) {
-      return 'text-green-400';
-    }
-    if (currentStatus.includes('Error') || currentStatus.includes('Failed') || currentStatus.includes('delet')) {
-      return 'text-red-400';
-    }
-    return 'text-amber-400';
-  }
 }
+

@@ -1,142 +1,137 @@
-<!-- The Dexie.js script is loaded programmatically in the component logic -->
-
 <div class="main-container">
-  <div class="content-wrapper">
+  <mat-card class="content-wrapper">
+    <mat-card-header class="header">
+      <mat-card-title class="title">Trappist-1 Deck Builder</mat-card-title>
+      <mat-card-subtitle class="subtitle">Local Card Database Management with IndexedDB</mat-card-subtitle>
+    </mat-card-header>
 
-    <!-- Header -->
-    <div class="header">
-      <h1 class="title">Trappist-1 Deck Builder</h1>
-      <p class="subtitle">Local Card Database Management with IndexedDB</p>
-    </div>
+    <mat-toolbar class="status-display" [ngClass]="{
+      'status-success': status().includes('Successfully') || status().includes('found') || status().includes('Ready'),
+      'status-error': status().includes('Error') || status().includes('Failed') || status().includes('delet'),
+      'status-warning': !status().includes('Success') && !status().includes('Error')
+    }">
+      <span>Status: {{ status() }}</span>
+    </mat-toolbar>
 
-    <!-- Status Display -->
-    <div class="status-display">
-      <p class="status-text" [ngClass]="statusColor()">
-        Status: {{ status() }}
-      </p>
-    </div>
-
-    <!-- DATA LOADER UI -->
-    <div *ngIf="!dataExists()">
-      <div *ngIf="!isChecking()">
-
-        <!-- Input Mode Toggle -->
-        <div class="input-mode-toggle">
-          <button (click)="inputMode.set('url')" [class.active]="inputMode() === 'url'" [class.inactive]="inputMode() !== 'url'">
-            From URL
-          </button>
-          <button (click)="inputMode.set('file')" [class.active]="inputMode() === 'file'" [class.inactive]="inputMode() !== 'file'">
-            From Local File
-          </button>
-        </div>
-
-        <!-- URL Input -->
-        <div *ngIf="inputMode() === 'url'" class="input-section">
-          <p class="input-helper-text">
-            Provide the URL to download and store the collection.
-          </p>
-          <div class="url-input-group">
-            <input #urlInput type="text" (input)="jsonUrl.set(urlInput.value)" [value]="jsonUrl()"
-              placeholder="Enter URL to large JSON file"
-              class="text-input" />
-            <button (click)="downloadAndStoreData()" [disabled]="isLoading() || !jsonUrl()" class="action-button">
-              <span *ngIf="!isLoading()">Download & Store</span>
-              <ng-container *ngIf="isLoading()">
-                <svg class="spinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                Processing...
-              </ng-container>
-            </button>
-          </div>
-        </div>
-
-        <!-- File Input -->
-        <div *ngIf="inputMode() === 'file'" class="input-section">
-          <p class="input-helper-text">
-            Select a JSON file from your local system to upload.
-          </p>
-          <div class="file-input-group">
-            <input type="file" accept=".json,application/json" #fileInput (change)="onFileSelected($event)" class="file-input"/>
-            <div *ngIf="selectedFile()" class="selected-file-info">
-              Selected: <span>{{ selectedFile()?.name }} ({{ (selectedFile()?.size || 0) / 1024 | number:'1.1-2' }} KB)</span>
-            </div>
-            <button (click)="uploadAndStoreData()" [disabled]="isLoading() || !selectedFile()" class="action-button">
-              <span *ngIf="!isLoading()">Upload & Store</span>
-              <ng-container *ngIf="isLoading()">
-                 <svg class="spinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                Processing...
-              </ng-container>
-            </button>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- CARD SEARCH AND LIST UI -->
-    <div *ngIf="dataExists()">
-       <div class="data-loaded-info">
+    <mat-card-content>
+      <!-- DATA LOADER UI -->
+      @if (!dataExists()) {
+        @if (!isChecking()) {
           <div>
-            <p class="info-text">Data is stored locally in IndexedDB!</p>
-            <p class="card-count">{{ cardCount() }} cards in database</p>
-          </div>
-          <button (click)="clearDatabase()" [disabled]="isLoading()" class="clear-db-button">
-            Clear Database
-          </button>
-       </div>
+            <mat-button-toggle-group [(ngModel)]="inputMode" aria-label="Input Mode" class="input-mode-toggle">
+              <mat-button-toggle value="url">From URL</mat-button-toggle>
+              <mat-button-toggle value="file">From Local File</mat-button-toggle>
+            </mat-button-toggle-group>
 
-        <!-- Search Area -->
-       <div class="search-area">
-          <label for="cardSearch">Search for a Card</label>
-          <input id="cardSearch" #searchInput type="text"
-            [value]="searchText()"
-            (input)="updateSearchText(searchInput.value)"
-            (keydown.enter)="addFirstSuggestion()"
-            placeholder="Type a card name..."
-            class="text-input" />
+            @if (inputMode() === 'url') {
+              <div class="input-section">
+                <p>Provide the URL to download and store the collection.</p>
+                <div class="url-input-group">
+                  <mat-form-field appearance="outline" class="flex-grow">
+                    <mat-label>JSON File URL</mat-label>
+                    <input matInput #urlInput (input)="jsonUrl.set(urlInput.value)" [value]="jsonUrl()">
+                  </mat-form-field>
+                  <button mat-raised-button color="primary" (click)="downloadAndStoreData()" [disabled]="isLoading() || !jsonUrl()">
+                    @if (isLoading()) {
+                      <mat-spinner diameter="20" class="spinner"></mat-spinner>
+                    }
+                    {{ isLoading() ? 'Processing...' : 'Download & Store' }}
+                  </button>
+                </div>
+              </div>
+            }
 
-          <!-- Typeahead Suggestions -->
-          <div *ngIf="suggestions().length > 0" class="suggestions-dropdown">
-            @for(card of suggestions(); track card.id) {
-              <div (click)="addCardToList(card)" class="suggestion-item">
-                <span>{{ card.name }}</span>
-                <span class="mana-cost">{{ card.mana_cost }}</span>
+            @if (inputMode() === 'file') {
+              <div class="input-section file-input-section">
+                <p>Select a JSON file from your local system to upload.</p>
+                <input type="file" hidden #fileInput (change)="onFileSelected($event)">
+                <button mat-stroked-button (click)="fileInput.click()">
+                  <mat-icon>attach_file</mat-icon>
+                  Choose File
+                </button>
+                @if (selectedFile()) {
+                  <div class="selected-file-info">
+                    Selected: <span>{{ selectedFile()?.name }} ({{ (selectedFile()?.size || 0) / 1024 | number:'1.1-2' }} KB)</span>
+                  </div>
+                }
+                <button mat-raised-button color="primary" (click)="uploadAndStoreData()" [disabled]="isLoading() || !selectedFile()">
+                   @if (isLoading()) {
+                    <mat-spinner diameter="20" class="spinner"></mat-spinner>
+                  }
+                  {{ isLoading() ? 'Processing...' : 'Upload & Store' }}
+                </button>
               </div>
             }
           </div>
-       </div>
+        }
+      }
 
-       <!-- Added Cards List -->
-       <div class="card-list-section">
-          <h3 class="list-header">Card List ({{ addedCards().length }})</h3>
-          @for(card of addedCards(); track $index) {
-            <div (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()" class="card-item">
-              <div class="card-details">
-                <h4 class="card-name">{{ card.name }} <span class="mana-cost">{{ card.mana_cost }}</span></h4>
-                <p class="type-line">{{ card.type_line }}</p>
-                <p class="oracle-text">{{ card.oracle_text }}</p>
+      <!-- CARD SEARCH AND LIST UI -->
+      @if (dataExists()) {
+        <div>
+          <div class="data-loaded-info">
+              <div class="info-text">
+                  <mat-icon color="primary">check_circle</mat-icon>
+                  <span>Data is stored locally in IndexedDB!</span>
               </div>
-              <button (click)="removeCardFromList($index)" class="remove-button">
-                Remove
-              </button>
-            </div>
-          }
+            <p class="card-count">{{ cardCount() }} cards in database</p>
+            <button mat-stroked-button color="warn" (click)="clearDatabase()" [disabled]="isLoading()">
+              Clear Database
+            </button>
+          </div>
+
+          <mat-form-field class="search-area" appearance="outline">
+              <mat-label>Search for a Card</mat-label>
+              <input type="text"
+                     placeholder="Type a card name..."
+                     matInput
+                     [formControl]="searchControl"
+                     [matAutocomplete]="auto">
+              <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="onSuggestionSelected($event)">
+                @for(card of suggestions(); track card.id) {
+                  <mat-option [value]="card">
+                    <div class="suggestion-item">
+                      <span>{{ card.name }}</span>
+                      <span class="mana-cost">{{ card.mana_cost }}</span>
+                    </div>
+                  </mat-option>
+                }
+              </mat-autocomplete>
+          </mat-form-field>
+
+          <h3 class="list-header">Card List ({{ addedCards().length }})</h3>
+          <mat-list role="list" class="card-list-section">
+            @for(card of addedCards(); track $index) {
+              <mat-list-item role="listitem" class="card-item" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
+                <div class="card-details">
+                  <h4 class="card-name">{{ card.name }} <span class="mana-cost">{{ card.mana_cost }}</span></h4>
+                  <p class="type-line">{{ card.type_line }}</p>
+                  <p class="oracle-text">{{ card.oracle_text }}</p>
+                </div>
+                <button mat-icon-button color="warn" (click)="removeCardFromList($index)" aria-label="Remove card from list">
+                  <mat-icon>remove_circle</mat-icon>
+                </button>
+              </mat-list-item>
+            }
+          </mat-list>
           @if(addedCards().length === 0) {
-            <div class="empty-list-placeholder">
-              <p>Your list is empty.</p>
-              <p>Use the search bar above to find and add cards.</p>
-            </div>
+              <div class="empty-list-placeholder">
+                <p>Your list is empty.</p>
+                <p>Use the search bar above to find and add cards.</p>
+              </div>
           }
-       </div>
-
-    </div>
-
-  </div>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
 </div>
 
 <!-- Floating Card Image Preview -->
-<div *ngIf="hoveredCard()?.image_uris?.normal as imageUrl"
-  class="image-preview"
-  [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y">
-  <img [src]="imageUrl" alt="Card Image" />
-</div>
+@if (hoveredCard()?.image_uris?.normal; as imageUrl) {
+  <div class="image-preview"
+    [style.left.px]="mousePos().x + 20"
+    [style.top.px]="mousePos().y">
+    <img [src]="imageUrl" alt="Card Image" />
+  </div>
+}
 
