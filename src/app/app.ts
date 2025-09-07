@@ -80,10 +80,11 @@ interface CardFace {
   oracle_text?: string;
 }
 
-// Card document structure, now including card_faces
+// Card document structure, now including card_faces and frame_effects
 interface CardDocument {
   id: string;
   name:string;
+  name_lowercase?: string; // Add lowercase name for unique indexing
   image_uris?: { normal?: string; };
   type_line?: string;
   mana_cost?: string;
@@ -95,6 +96,7 @@ interface CardDocument {
   keywords?: string[];
   reprint?: boolean;
   card_faces?: CardFace[];
+  frame_effects?: string[];
 }
 
 @Component({
@@ -131,6 +133,7 @@ export class App implements OnInit {
   jsonUrl = signal<string>('https://api.jsonbin.io/v3/b/66dae6a8e41b4d34e403d15b');
   inputMode = signal<'url' | 'file'>('url');
   selectedFile = signal<File | null>(null);
+  fileErrorDetails = signal<string | null>(null);
 
   // --- Card Search & List State ---
   searchControl = new FormControl('');
@@ -161,8 +164,21 @@ export class App implements OnInit {
       return;
     }
     if (this.db?.cards) {
-       const results = await this.db.cards.where('name').startsWithIgnoreCase(filterValue).limit(10).toArray();
-       this.suggestions.set(results);
+       // First, get all potential name matches from the database
+       const results = await this.db.cards
+                            .where('name')
+                            .startsWithIgnoreCase(filterValue)
+                            .toArray();
+
+       // Then, filter out any cards that are tokens or schemes in JavaScript
+       const filteredResults = results.filter((card: CardDocument) => {
+            const typeLine = card.type_line?.toLowerCase();
+            if (!typeLine) return true; // Keep cards with no type line
+            return !typeLine.startsWith('token') && !typeLine.includes('scheme');
+       });
+
+       // Finally, limit the results to the top 10 and update the suggestions
+       this.suggestions.set(filteredResults.slice(0, 10));
     }
   }
 
@@ -195,8 +211,9 @@ export class App implements OnInit {
         public cards: Dexie.Table<CardDocument, string>;
         constructor() {
           super('TrappistDB');
-          this.version(2).stores({
-            cards: 'id, name, type_line, cmc, *colors, *color_identity, *keywords',
+          // Version 4: Use a case-insensitive unique index on a dedicated lowercase field
+          this.version(4).stores({
+            cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords',
           });
           this.cards = this.table('cards');
         }
@@ -240,6 +257,7 @@ export class App implements OnInit {
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
+    this.fileErrorDetails.set(null); // Clear previous errors
     if (input.files && input.files.length > 0) {
       this.selectedFile.set(input.files[0]);
     } else {
@@ -250,6 +268,7 @@ export class App implements OnInit {
   async downloadAndStoreData() {
     if (!this.jsonUrl()) return;
     this.isLoading.set(true);
+    this.fileErrorDetails.set(null); // Clear previous errors
     this.status.set('Downloading data...');
     try {
       const response = await fetch(this.jsonUrl());
@@ -258,6 +277,9 @@ export class App implements OnInit {
       await this.storeDataInDb(jsonData);
     } catch (error) {
       this.status.set('Failed to download or store data.');
+      if (error instanceof Error) {
+        this.fileErrorDetails.set(error.message);
+      }
       console.error('Download/Storage Error:', error);
       this.dataExists.set(false);
     } finally {
@@ -271,6 +293,7 @@ export class App implements OnInit {
 
     this.isLoading.set(true);
     this.status.set(`Reading file: ${file.name}...`);
+    this.fileErrorDetails.set(null); // Clear previous errors
     const reader = new FileReader();
 
     reader.onload = async (e: ProgressEvent<FileReader>) => {
@@ -281,15 +304,21 @@ export class App implements OnInit {
         await this.storeDataInDb(jsonData);
       } catch (error) {
         this.status.set('Error reading or parsing file.');
+        if (error instanceof Error) {
+            this.fileErrorDetails.set(error.message);
+        } else {
+            this.fileErrorDetails.set(String(error));
+        }
         console.error('File Read/Parse Error:', error);
         this.dataExists.set(false);
       } finally {
         this.isLoading.set(false);
       }
     };
-    reader.onerror = () => {
+    reader.onerror = (error) => {
       this.status.set('Failed to read the selected file.');
-      console.error('FileReader error.');
+      this.fileErrorDetails.set('The browser reported an error while trying to read the file.');
+      console.error('FileReader error:', error);
       this.isLoading.set(false);
     };
 
@@ -306,10 +335,66 @@ export class App implements OnInit {
         throw new Error('Data is not in a recognized array format.');
     }
 
-    const dataToStore = rawData.filter(card => card.reprint === false);
+    const filteredData = rawData.filter(card => card.reprint === false);
 
-    this.status.set(`Data processed. Storing ${dataToStore.length} non-reprint cards...`);
-    await this.db.cards.bulkAdd(dataToStore);
+    // Add a lowercase name property to each card for case-insensitive indexing
+    filteredData.forEach(card => {
+        if (card.name) {
+            card.name_lowercase = card.name.toLowerCase();
+        }
+    });
+
+    // Group cards by name (case-insensitively) to identify all duplicates
+    const cardNameGroups = new Map<string, CardDocument[]>();
+    for (const card of filteredData) {
+        if (!card.name_lowercase) continue; // Skip cards without a name
+        const nameKey = card.name_lowercase;
+        if (!cardNameGroups.has(nameKey)) {
+            cardNameGroups.set(nameKey, []);
+        }
+        cardNameGroups.get(nameKey)!.push(card);
+    }
+
+    const uniqueDataToStore: CardDocument[] = [];
+    const conflictNames: string[] = [];
+
+    // Resolve conflicts and build the final list to store
+    for (const [name, cards] of cardNameGroups.entries()) {
+        if (cards.length === 1) {
+            uniqueDataToStore.push(cards[0]);
+        } else {
+            // A conflict was found for this name
+            conflictNames.push(cards[0].name); // Use original casing for display
+
+            // Apply preference logic: find the best card among duplicates
+            let preferredCard = cards[0];
+            for (let i = 1; i < cards.length; i++) {
+                const currentIsExtended = preferredCard.frame_effects?.includes('extendedart') ?? false;
+                const nextIsExtended = cards[i].frame_effects?.includes('extendedart') ?? false;
+
+                // If the currently preferred card is extended art and the next one is not,
+                // the next one becomes preferred.
+                if (currentIsExtended && !nextIsExtended) {
+                    preferredCard = cards[i];
+                }
+            }
+            uniqueDataToStore.push(preferredCard);
+        }
+    }
+
+    // Report conflicts to the user, if any were found
+    if (conflictNames.length > 0) {
+        const errorMessage = `Uniqueness conflicts were detected and automatically resolved for the following ${conflictNames.length} card(s):\n\n- ${conflictNames.join('\n- ')}`;
+        this.fileErrorDetails.set(errorMessage);
+    } else {
+        this.fileErrorDetails.set(null); // Clear previous errors if none found
+    }
+
+    this.status.set(`Data processed. Storing ${uniqueDataToStore.length} unique, non-reprint cards...`);
+
+    // This bulkAdd operation should now be safe from constraint errors
+    await this.db.cards.bulkAdd(uniqueDataToStore);
+
     const count = await this.db.cards.count();
     this.status.set(`Successfully stored ${count} cards!`);
     this.dataExists.set(true);
