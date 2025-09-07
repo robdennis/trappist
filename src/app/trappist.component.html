@@ -1,3 +1,4 @@
+<link href="//cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 <div class="main-container">
   <mat-card class="content-wrapper">
     <mat-card-header class="header">
@@ -92,7 +93,7 @@
                   <mat-option [value]="card">
                     <div class="suggestion-item">
                       <span>{{ card.name }}</span>
-                      <span class="mana-cost">{{ card.mana_cost }}</span>
+                      <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span>
                     </div>
                   </mat-option>
                 }
@@ -104,9 +105,23 @@
             @for(card of addedCards(); track $index) {
               <mat-list-item role="listitem" class="card-item" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
                 <div class="card-details">
-                  <h4 class="card-name">{{ card.name }} <span class="mana-cost">{{ card.mana_cost }}</span></h4>
-                  <p class="type-line">{{ card.type_line }}</p>
-                  <p class="oracle-text">{{ card.oracle_text }}</p>
+                  <!-- Check for card faces -->
+                  @if (card.card_faces && card.card_faces.length > 0) {
+                    <div class="card-face-container">
+                      @for(face of card.card_faces; track $index) {
+                        <div class="card-face">
+                          <h4 class="card-name">{{ face.name }} <span class="mana-cost" [innerHTML]="face.mana_cost | manaSymbol"></span></h4>
+                          <p class="type-line">{{ face.type_line }}</p>
+                          <p class="oracle-text" [innerHTML]="face.oracle_text | manaSymbol"></p>
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <!-- Original single-face display -->
+                    <h4 class="card-name">{{ card.name }} <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span></h4>
+                    <p class="type-line">{{ card.type_line }}</p>
+                    <p class="oracle-text" [innerHTML]="card.oracle_text | manaSymbol"></p>
+                  }
                 </div>
                 <button mat-icon-button color="warn" (click)="removeCardFromList($index)" aria-label="Remove card from list">
                   <mat-icon>remove_circle</mat-icon>
@@ -127,11 +142,25 @@
 </div>
 
 <!-- Floating Card Image Preview -->
-@if (hoveredCard()?.image_uris?.normal; as imageUrl) {
+@if (hoveredCard(); as card) {
   <div class="image-preview"
     [style.left.px]="mousePos().x + 20"
     [style.top.px]="mousePos().y">
-    <img [src]="imageUrl" alt="Card Image" />
+    <!-- Check for card faces -->
+    @if (card.card_faces && card.card_faces.length > 0) {
+      <div class="image-preview-multiface">
+          @for(face of card.card_faces; track $index) {
+              @if(face.image_uris?.normal; as imageUrl) {
+                  <img [src]="imageUrl" alt="{{face.name}} Image" />
+              }
+          }
+      </div>
+    } @else {
+      <!-- Original single-image display -->
+      @if (card.image_uris?.normal; as imageUrl) {
+          <img [src]="imageUrl" alt="Card Image" />
+      }
+    }
   </div>
 }
 

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, OnInit, signal, Pipe, PipeTransform, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -12,9 +12,37 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Observable } from 'rxjs';
 import { startWith, map } from 'rxjs/operators';
 
+// NOTE: For the mana symbols to render, please add the following line to the <head> of your main `index.html` file:
+// <link href="//cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
+
+// --- Mana Symbol Pipe ---
+@Pipe({
+  name: 'manaSymbol',
+  standalone: true,
+})
+export class ManaSymbolPipe implements PipeTransform {
+  private sanitizer = inject(DomSanitizer);
+
+  transform(value: string | undefined | null): SafeHtml {
+    if (!value) {
+      return '';
+    }
+    // Regex to find all {symbol} templates
+    const htmlString = value.replace(/\{([^}]+)\}/g, (match, symbol) => {
+      // Sanitize symbol for CSS class: lowercase, remove slashes
+      const sanitizedSymbol = symbol.toLowerCase().replace(/[\/]/g, '');
+      // Handle specific symbol names (e.g., {T} -> tap)
+      const finalSymbol = sanitizedSymbol === 't' ? 'tap' : sanitizedSymbol;
+      return `<i class="ms ms-${finalSymbol} ms-cost"></i>`;
+    });
+
+    return this.sanitizer.bypassSecurityTrustHtml(htmlString);
+  }
+}
 
 // Dexie type declarations
 declare class Dexie {
@@ -43,10 +71,19 @@ declare namespace Dexie {
     }
 }
 
-// Card document structure
+// Structure for an individual card face
+interface CardFace {
+  name: string;
+  image_uris?: { normal?: string; };
+  type_line?: string;
+  mana_cost?: string;
+  oracle_text?: string;
+}
+
+// Card document structure, now including card_faces
 interface CardDocument {
   id: string;
-  name: string;
+  name:string;
   image_uris?: { normal?: string; };
   type_line?: string;
   mana_cost?: string;
@@ -57,6 +94,7 @@ interface CardDocument {
   produced_mana?: string[];
   keywords?: string[];
   reprint?: boolean;
+  card_faces?: CardFace[];
 }
 
 @Component({
@@ -76,7 +114,8 @@ interface CardDocument {
     MatButtonToggleModule,
     MatAutocompleteModule,
     MatListModule,
-    MatIconModule
+    MatIconModule,
+    ManaSymbolPipe // Import the new pipe
   ],
   templateUrl: './trappist.component.html',
   styleUrls: ['./trappist.component.scss'],
