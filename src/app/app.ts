@@ -90,6 +90,7 @@ interface CardDocument {
   oracle_text?: string; colors?: string[]; color_identity?: string[];
   produced_mana?: string[]; keywords?: string[]; reprint?: boolean;
   card_faces?: CardFace[]; frame_effects?: string[];
+  layout?: string;
 }
 interface PersistedPack {
   name: string; size: number; cardIds: string[]; signpostCardId?: string;
@@ -315,7 +316,17 @@ export class App implements OnInit {
   private async storeDataInDb(jsonData: any) {
     const rawData: CardDocument[] = Array.isArray(jsonData) ? jsonData : jsonData.record;
     if (!Array.isArray(rawData)) throw new Error('Data is not in a recognized array format.');
-    const filteredData = rawData.filter(card => !card.reprint);
+
+    // Tweak 1: Filter out cards where all faces have the same name (e.g. promo art)
+    const promoArtFilteredData = rawData.filter(card => {
+        if (card.card_faces && card.card_faces.length > 1) {
+            const faceNames = new Set(card.card_faces.map(face => face.name));
+            return faceNames.size > 1; // Keep if there's more than one unique name
+        }
+        return true; // Keep cards without multiple faces
+    });
+
+    const filteredData = promoArtFilteredData.filter(card => !card.reprint);
     filteredData.forEach(card => { if (card.name) card.name_lowercase = card.name.toLowerCase(); });
 
     const cardNameGroups = new Map<string, CardDocument[]>();
@@ -752,8 +763,23 @@ export class App implements OnInit {
     return signpostCard.image_uris?.art_crop;
   }
 
+  public getDisplayManaCost(card: CardDocument): string {
+    if (!card) return '';
+    // If a top-level mana cost exists, always prefer it.
+    if (card.mana_cost) {
+        return card.mana_cost;
+    }
+    // Tweak 4: If no top-level cost, but faces exist, concatenate face costs.
+    if (card.card_faces && card.card_faces.length > 0) {
+        return card.card_faces
+            .map(face => face.mana_cost)
+            .filter(cost => cost && cost.length > 0) // Filter out empty strings or nulls
+            .join(' // ');
+    }
+    return ''; // Default to empty string
+  }
+
   public formatTimestamp(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
   }
 }
-

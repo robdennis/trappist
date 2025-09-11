@@ -71,7 +71,7 @@
                 <mat-option [value]="suggestion">
                   <div class="suggestion-item">
                       <span>{{ suggestion.name }}</span>
-                      <span class="mana-cost" [innerHTML]="suggestion.mana_cost | manaSymbol"></span>
+                      <span class="mana-cost" [innerHTML]="getDisplayManaCost(suggestion) | manaSymbol"></span>
                   </div>
                 </mat-option>
               }
@@ -221,16 +221,22 @@
 
 
 @if (hoveredCard(); as card) {
-  <div class="card-image-preview" [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y + 20">
-      @if (card.card_faces && card.card_faces.length > 0) {
-          @for (face of card.card_faces; track $index) {
-              @if(face.image_uris?.normal){
-                <img [src]="face.image_uris?.normal" [alt]="face.name">
-              }
+  <div class="card-image-preview"
+       [style.left.px]="mousePos().x + 20"
+       [style.top.px]="mousePos().y + 20"
+       [class.rotated]="card.layout === 'split'">
+      <!-- Tweak 2: Prioritize top-level image_uris if it exists, even if card_faces are present -->
+      @if (card.image_uris; as imageUris) {
+        @if(imageUris.normal) {
+          <img [src]="imageUris.normal" [alt]="card.name">
+        }
+      } @else if (card.card_faces && card.card_faces.length > 0) {
+        @for (face of card.card_faces; track $index) {
+          @if(face.image_uris; as faceImageUris){
+            @if(faceImageUris.normal){
+              <img [src]="faceImageUris.normal" [alt]="face.name">
+            }
           }
-      } @else {
-         @if(card.image_uris?.normal){
-            <img [src]="card.image_uris?.normal" [alt]="card.name">
         }
       }
   </div>

@@ -133,6 +133,12 @@
   pointer-events: none;
   display: flex;
   gap: 8px;
+
+  // Tweak 3: Add rotation for split cards
+  &.rotated img {
+    transform: rotate(90deg);
+  }
+
   img {
     width: 223px;
     height: 310px;
@@ -259,4 +265,3 @@
     font-weight: bold;
     color: #00796b; // Teal 700
 }
-
