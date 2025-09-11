@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, OnInit, signal, Pipe, PipeTransform, inject, ElementRef, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, OnInit, signal, Pipe, PipeTransform, inject, ElementRef, ViewChild, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -20,9 +20,6 @@ import { MatDividerModule } from '@angular/material/divider';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Observable } from 'rxjs';
 import { startWith, map, debounceTime } from 'rxjs/operators';
-
-// NOTE: For the mana symbols to render, please add the following line to the <head> of your main `index.html` file:
-// <link href="//cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet" type="text/css" />
 
 // --- Mana Symbol Pipe ---
 @Pipe({
@@ -94,22 +91,35 @@ interface CardDocument {
 }
 interface PersistedPack {
   name: string; size: number; cardNames: string[]; signpostCardName?: string;
+  archetype?: string; themes?: string; slots?: string[];
 }
 interface PackRevision {
     name: string; size: number; cardIds: string[]; signpostCardId?: string;
     timestamp: number;
     reason?: string;
+    archetype?: string; themes?: string; slots?: string[];
 }
 interface PackHistory {
-    id: string; // Primary Key
-    name: string; // Unique Index
+    id: string;
+    name: string;
     revisions: PackRevision[];
     isDeleted: number;
 }
 interface Pack extends PackHistory {
-    cards: CardDocument[]; // Hydrated cards for the current revision
+    cards: CardDocument[];
 }
 
+const DEFAULT_PACK_SLOTS = [
+  'Board Advantage', 'Board Advantage', 'Board Advantage', 'Board Advantage',
+  'Flex', 'Flex',
+  'Disenchant',
+  'Creature Removal', 'Creature Removal',
+  '+1/+1 counters',
+  'Other Themes', 'Other Themes',
+  'Tripels Token',
+  'Fixing', 'Fixing', 'Fixing', 'Fixing', 'Fixing', 'Fixing', 'Fixing',
+  'Fixing Token'
+];
 
 @Component({
   selector: 'app-root',
@@ -148,6 +158,8 @@ export class App implements OnInit {
   activePackId = signal<string | null>(null);
   provisionalChanges = signal<Set<string>>(new Set());
   @ViewChild('packsImporter') packsImporter!: ElementRef<HTMLInputElement>;
+
+  activePack = computed(() => this.packs().find(p => p.id === this.activePackId()));
 
   // --- Database Properties ---
   private db: any;
@@ -210,19 +222,9 @@ export class App implements OnInit {
         public packs!: Dexie.Table<PackHistory, string>;
         constructor() {
           super('TrappistDB');
-          this.version(5).stores({
+          this.version(6).stores({
             cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords',
             packs: 'id, &name, isDeleted'
-          });
-          // Add a new version with a data migration to fix the isDeleted boolean issue
-          this.version(6).stores({
-            packs: 'id, &name, isDeleted' // Schema definition is the same
-          }).upgrade((tx: any) => {
-            // This upgrade function will run for any user who has db version < 6
-            // It converts any boolean isDeleted flags to numbers (0 or 1)
-            return tx.table('packs').toCollection().modify((pack: any) => {
-              pack.isDeleted = pack.isDeleted ? 1 : 0;
-            });
           });
         }
       }
@@ -351,7 +353,7 @@ export class App implements OnInit {
     }
     this.fileErrorDetails.set(null);
     this.status.set(`Data processed. Storing ${uniqueDataToStore.length} unique, non-reprint cards...`);
-    await this.db.cards.clear(); // Clear existing cards before adding new ones
+    await this.db.cards.clear();
     await this.db.cards.bulkAdd(uniqueDataToStore);
     const count = await this.db.cards.count();
     this.status.set(`Successfully stored ${count} cards!`);
@@ -426,10 +428,12 @@ export class App implements OnInit {
 
     const packId = crypto.randomUUID();
     const newPackForUI: Pack = {
-      id: packId,
-      name: finalName,
-      isDeleted: 0,
-      revisions: [{ name: finalName, size: 20, cardIds: [], timestamp: Date.now(), reason: 'Initial revision' }],
+      id: packId, name: finalName, isDeleted: 0,
+      revisions: [{
+        name: finalName, size: 20, cardIds: [], timestamp: Date.now(),
+        reason: 'Initial revision', archetype: 'Midrange', themes: 'Tokens, +1/+1 Counters',
+        slots: [...DEFAULT_PACK_SLOTS]
+      }],
       cards: []
     };
 
@@ -455,9 +459,33 @@ export class App implements OnInit {
     }
   }
 
-  onPackNameChange(packId: string, newName: string) {
-      this.packs.update(packs => packs.map(p => p.id === packId ? {...p, name: newName} : p));
-      this.markPackAsDirty(packId);
+  onPackMetaChange(packId: string, field: 'name' | 'archetype' | 'themes', value: string) {
+    this.packs.update(packs => packs.map(p => {
+        if (p.id === packId) {
+            const latestRevision = this.getCurrentRevision(p);
+            const updatedRevision = { ...latestRevision, [field]: value };
+            if (field === 'name') {
+                return { ...p, name: value, revisions: [...p.revisions.slice(0, -1), updatedRevision] };
+            }
+            return { ...p, revisions: [...p.revisions.slice(0, -1), updatedRevision] };
+        }
+        return p;
+    }));
+    this.markPackAsDirty(packId);
+  }
+
+  onSlotLabelChange(packId: string, slotIndex: number, newLabel: string) {
+    this.packs.update(packs => packs.map(p => {
+        if (p.id === packId) {
+            const latestRevision = this.getCurrentRevision(p);
+            const newSlots = [...(latestRevision.slots || Array(latestRevision.size).fill(''))];
+            newSlots[slotIndex] = newLabel;
+            const updatedRevision = { ...latestRevision, slots: newSlots };
+            return { ...p, revisions: [...p.revisions.slice(0, -1), updatedRevision] };
+        }
+        return p;
+    }));
+    this.markPackAsDirty(packId);
   }
 
   setActivePack(packId: string) { this.activePackId.set(packId); }
@@ -475,7 +503,7 @@ export class App implements OnInit {
             }
             const updatedCards = [...p.cards, card];
 
-            if (updatedCards.length === 1) {
+            if (updatedCards.length === 1 && !currentRevision.signpostCardId) {
                 const newRevision = {...currentRevision, signpostCardId: card.id };
                 return { ...p, cards: updatedCards, revisions: [...p.revisions.slice(0, -1), newRevision]};
             }
@@ -600,6 +628,9 @@ export class App implements OnInit {
         return {
             name: pack.name,
             size: currentRevision.size,
+            archetype: currentRevision.archetype,
+            themes: currentRevision.themes,
+            slots: currentRevision.slots,
             cardNames: pack.cards.map(c => c.name),
             signpostCardName: signpostCard?.name,
         }
@@ -636,7 +667,10 @@ export class App implements OnInit {
                         cardIds: cards.map(c => c.id),
                         signpostCardId: signpostCard?.id,
                         timestamp: Date.now(),
-                        reason: 'Imported from file'
+                        reason: 'Imported from file',
+                        archetype: importedPack.archetype,
+                        themes: importedPack.themes,
+                        slots: importedPack.slots || [...DEFAULT_PACK_SLOTS],
                     };
                     packHistory.revisions.push(newRevision);
                     await this.db.packs.put(packHistory);
@@ -676,13 +710,15 @@ export class App implements OnInit {
             cardIds: cards.map(c => c.id),
             signpostCardId: signpostCard?.id,
             timestamp: Date.now(),
-            reason: 'Imported from file'
+            reason: 'Imported from file',
+            archetype: importedPack.archetype,
+            themes: importedPack.themes,
+            slots: importedPack.slots || [...DEFAULT_PACK_SLOTS],
         }]
       };
       await this.db.packs.add(newPackHistory);
   }
 
-  // --- Provisional Changes Methods ---
   private markPackAsDirty(packId: string) {
     this.provisionalChanges.update(set => new Set(set.add(packId)));
   }
@@ -704,22 +740,11 @@ export class App implements OnInit {
     const provisionalRevision = this.getCurrentRevision(pack);
 
     let reason = 'Pack updated';
-    const nameChanged = lastSavedRevision ? pack.name !== lastSavedRevision.name : false;
-
-    let cardsChanged = true;
-    if (lastSavedRevision) {
-        const provisionalCardIds = new Set(pack.cards.map(c => c.id));
-        const savedCardIds = new Set(lastSavedRevision.cardIds);
-        cardsChanged = provisionalCardIds.size !== savedCardIds.size ||
-            !pack.cards.every(c => savedCardIds.has(c.id));
-    }
 
     if (isNewPack) {
         reason = 'Initial revision';
-    } else if(nameChanged && !cardsChanged) {
+    } else if (lastSavedRevision && pack.name !== lastSavedRevision.name) {
         reason = `Name changed to "${pack.name}"`;
-    } else if (nameChanged && cardsChanged) {
-        reason = `Pack updated and renamed to "${pack.name}"`;
     }
 
     const newRevision: PackRevision = {
@@ -728,11 +753,14 @@ export class App implements OnInit {
         cardIds: pack.cards.map(c => c.id),
         signpostCardId: provisionalRevision.signpostCardId,
         timestamp: Date.now(),
-        reason: reason
+        reason: reason,
+        archetype: provisionalRevision.archetype,
+        themes: provisionalRevision.themes,
+        slots: provisionalRevision.slots
     };
 
     const revisionsToSave = isNewPack ? [newRevision] : [...existingHistory.revisions, newRevision];
-    const historyToSave = {
+    const historyToSave: PackHistory = {
         id: pack.id,
         name: pack.name,
         isDeleted: 0,
@@ -777,14 +805,22 @@ export class App implements OnInit {
       });
   }
 
+  getEmptySlots(pack: Pack): null[] {
+    const currentRevision = this.getCurrentRevision(pack);
+    const filledSlots = pack.cards.length;
+    const totalSlots = currentRevision.size || 20;
+    return Array(Math.max(0, totalSlots - filledSlots)).fill(null);
+  }
+
   // --- UI Helpers ---
   showCardImage(card: CardDocument) { this.hoveredCard.set(card); }
   hideCardImage() { this.hoveredCard.set(null); }
-  getSignpostCardArtCrop(pack: Pack): string | undefined {
+  getSignpostCardArtCrop(pack: Pack | undefined): string | undefined {
+    if (!pack) return undefined;
     const signpostCardId = this.getCurrentRevision(pack).signpostCardId;
-    if (!signpostCardId) return pack.cards[0]?.image_uris?.art_crop; // Default to first card
+    if (!signpostCardId) return pack.cards[0]?.image_uris?.art_crop;
     const signpostCard = pack.cards.find(c => c.id === signpostCardId);
-    if (!signpostCard) return pack.cards[0]?.image_uris?.art_crop; // Fallback
+    if (!signpostCard) return pack.cards[0]?.image_uris?.art_crop;
     if (signpostCard.card_faces && signpostCard.card_faces.length > 0) {
       return signpostCard.card_faces[0].image_uris?.art_crop;
     }
@@ -809,3 +845,4 @@ export class App implements OnInit {
     return new Date(timestamp).toLocaleString();
   }
 }
+

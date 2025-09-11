@@ -61,7 +61,7 @@
       <mat-card class="content-card">
         <mat-card-header class="search-header">
            <mat-form-field class="full-width">
-            <mat-label>Search for a card to add</mat-label>
+            <mat-label>Search for a card to add to '{{ activePack()?.name }}'</mat-label>
             <input type="text"
                    matInput
                    [formControl]="searchControl"
@@ -119,113 +119,130 @@
       </mat-card>
 
       <div class="packs-container">
-        @for (pack of packs(); track pack.id) {
-          <mat-card class="pack-card" [class.active-pack]="pack.id === activePackId()">
-            <mat-card-header (click)="setActivePack(pack.id)">
-               <img mat-card-avatar [src]="getSignpostCardArtCrop(pack)" *ngIf="getSignpostCardArtCrop(pack)" alt="Signpost card art">
-              <mat-card-title>
-                 <mat-form-field class="pack-name-input">
-                    <input matInput [ngModel]="pack.name" (ngModelChange)="onPackNameChange(pack.id, $event)">
+        @if (activePack(); as pack) {
+          <div class="pack-grid-layout">
+            <!-- Left Column: Pack Info -->
+            <div class="pack-info-left">
+               <mat-form-field class="pack-name-input">
+                <mat-label>Pack Name</mat-label>
+                <input matInput [ngModel]="pack.name" (ngModelChange)="onPackMetaChange(pack.id, 'name', $event)">
+              </mat-form-field>
+
+              <div class="signpost-image-container">
+                @if (getSignpostCardArtCrop(pack); as artCropUrl) {
+                  <img [src]="artCropUrl" alt="Signpost card art">
+                } @else {
+                  <div class="no-image-placeholder">
+                    <mat-icon>photo_library</mat-icon>
+                    <span>No Signpost Image</span>
+                  </div>
+                }
+              </div>
+
+              <div class="pack-details-bottom">
+                  <mat-form-field>
+                    <mat-label>Archetype</mat-label>
+                    <input matInput [ngModel]="getCurrentRevision(pack).archetype" (ngModelChange)="onPackMetaChange(pack.id, 'archetype', $event)">
                   </mat-form-field>
-                  <mat-icon *ngIf="provisionalChanges().has(pack.id)" class="provisional-indicator" matTooltip="Unsaved changes">edit</mat-icon>
-              </mat-card-title>
-              <mat-card-subtitle class="pack-meta">
-                <span class="pack-count">{{ pack.cards.length }} / {{ getCurrentRevision(pack).size }}</span>
-                 <button mat-icon-button color="warn" (click)="$event.stopPropagation(); removePack(pack.id)" matTooltip="Delete Pack">
-                    <mat-icon>delete</mat-icon>
-                  </button>
-              </mat-card-subtitle>
-            </mat-card-header>
-            <mat-card-content>
-              @if (pack.cards.length > 0) {
-                <mat-list>
-                  @for (card of pack.cards; track $index) {
-                    <mat-list-item
-                        (mouseenter)="showCardImage(card)"
-                        (mouseleave)="hideCardImage()"
-                        [class.is-signpost-card]="card.id === getCurrentRevision(pack).signpostCardId">
-                      <div class="card-list-item-content">
-                        <div class="card-info">
-                          <div class="card-name-mana">
-                            <span class="card-name">{{ card.name }}</span>
-                            <span class="mana-cost" [innerHTML]="card.mana_cost | manaSymbol"></span>
-                          </div>
-                          <div class="type-line">{{ card.type_line }}</div>
-                          @if(card.card_faces && card.card_faces.length > 0) {
-                            @for(face of card.card_faces; track $index){
-                                <div class="card-face-details">
-                                    <div class="card-name-mana">
-                                        <span class="card-name">{{ face.name }}</span>
-                                        <span class="mana-cost" [innerHTML]="face.mana_cost | manaSymbol"></span>
-                                    </div>
-                                    <div class="type-line">{{ face.type_line }}</div>
-                                    <p class="oracle-text" [innerHTML]="face.oracle_text | manaSymbol"></p>
-                                </div>
-                            }
-                          } @else {
-                            <p class="oracle-text" [innerHTML]="card.oracle_text | manaSymbol"></p>
-                          }
+                  <mat-form-field>
+                    <mat-label>Themes</mat-label>
+                    <input matInput [ngModel]="getCurrentRevision(pack).themes" (ngModelChange)="onPackMetaChange(pack.id, 'themes', $event)">
+                  </mat-form-field>
+              </div>
+            </div>
+
+            <!-- Right Column: Card Slots -->
+            <div class="card-slots-right">
+                <div class="pack-header">
+                    <h3>
+                        {{ pack.name }}
+                        <span class="pack-count">({{ pack.cards.length }} / {{ getCurrentRevision(pack).size }})</span>
+                        <mat-icon *ngIf="provisionalChanges().has(pack.id)" class="provisional-indicator" matTooltip="Unsaved changes">edit</mat-icon>
+                    </h3>
+                    @if(provisionalChanges().has(pack.id)) {
+                        <div class="provisional-actions">
+                            <button mat-flat-button color="primary" (click)="savePackChanges(pack.id)">
+                                <mat-icon>save</mat-icon> Save
+                            </button>
+                            <button mat-stroked-button (click)="discardPackChanges(pack.id)">
+                                <mat-icon>undo</mat-icon> Discard
+                            </button>
                         </div>
-                        <div class="card-actions">
-                          <button mat-icon-button matTooltip="Set as signpost card" (click)="setSignpostCard(pack.id, card.id)">
-                            <mat-icon>push_pin</mat-icon>
-                          </button>
-                          <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromPack(pack.id, $index)">
-                            <mat-icon>remove_circle_outline</mat-icon>
-                          </button>
-                        </div>
-                      </div>
-                    </mat-list-item>
-                  }
-                </mat-list>
-              } @else {
-                <div class="empty-pack-message">This pack is empty. Add cards using the search bar above.</div>
-              }
-            </mat-card-content>
-             @if(provisionalChanges().has(pack.id)) {
-                <mat-card-actions class="provisional-actions">
-                    <button mat-stroked-button color="primary" (click)="savePackChanges(pack.id)">
-                        <mat-icon>save</mat-icon> Save Changes
-                    </button>
-                    <button mat-stroked-button (click)="discardPackChanges(pack.id)">
-                        <mat-icon>undo</mat-icon> Discard
-                    </button>
-                </mat-card-actions>
-            }
-            <mat-expansion-panel class="history-panel">
-                <mat-expansion-panel-header>
-                    <mat-panel-title>
-                        <mat-icon>history</mat-icon>
-                        Revision History ({{pack.revisions.length}})
-                    </mat-panel-title>
-                </mat-expansion-panel-header>
-                <mat-list>
-                    @for(revision of pack.revisions.slice().reverse(); track revision.timestamp){
-                        <mat-list-item [class.current-revision]="revision.timestamp === getCurrentRevision(pack).timestamp">
-                            <div class="revision-item">
-                                <span>{{formatTimestamp(revision.timestamp)}} - {{ revision.reason || (revision.cardIds.length + ' cards') }}</span>
-                                <button mat-stroked-button (click)="revertToRevision(pack.id, revision)" [disabled]="revision.timestamp === getCurrentRevision(pack).timestamp">
-                                    Revert
-                                </button>
-                            </div>
-                        </mat-list-item>
                     }
-                </mat-list>
-            </mat-expansion-panel>
-          </mat-card>
+                </div>
+
+                <div class="card-slots-grid">
+                    @for (card of pack.cards; track card.id; let i = $index) {
+                      <div class="slot-label">
+                        <input class="slot-input"
+                               [ngModel]="getCurrentRevision(pack).slots?.[i]"
+                               (ngModelChange)="onSlotLabelChange(pack.id, i, $event)">
+                      </div>
+                      <div class="mana-cost-cell">
+                          <span [innerHTML]="getDisplayManaCost(card) | manaSymbol"></span>
+                      </div>
+                      <div class="card-cell"
+                          (mouseenter)="showCardImage(card)"
+                          (mouseleave)="hideCardImage()"
+                          [class.is-signpost-card]="card.id === getCurrentRevision(pack).signpostCardId">
+                          <span class="card-name">{{ card.name }}</span>
+                      </div>
+                      <div class="actions-cell">
+                          <button mat-icon-button matTooltip="Set as signpost card" (click)="setSignpostCard(pack.id, card.id)">
+                              <mat-icon>push_pin</mat-icon>
+                          </button>
+                          <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromPack(pack.id, i)">
+                              <mat-icon>remove_circle_outline</mat-icon>
+                          </button>
+                      </div>
+                    }
+                    @for (item of getEmptySlots(pack); track $index; let i = $index) {
+                      <div class="slot-label">
+                        <input class="slot-input"
+                               [ngModel]="getCurrentRevision(pack).slots?.[pack.cards.length + i]"
+                               (ngModelChange)="onSlotLabelChange(pack.id, pack.cards.length + i, $event)">
+                      </div>
+                      <div class="mana-cost-cell empty"></div>
+                      <div class="card-cell empty"></div>
+                      <div class="actions-cell empty"></div>
+                    }
+                </div>
+
+                <mat-expansion-panel class="history-panel">
+                  <mat-expansion-panel-header>
+                      <mat-panel-title>
+                          <mat-icon>history</mat-icon>
+                          Revision History ({{pack.revisions.length}})
+                      </mat-panel-title>
+                  </mat-expansion-panel-header>
+                  <mat-list>
+                      @for(revision of pack.revisions.slice().reverse(); track revision.timestamp){
+                          <mat-list-item [class.current-revision]="revision.timestamp === getCurrentRevision(pack).timestamp">
+                              <div class="revision-item">
+                                  <span>{{formatTimestamp(revision.timestamp)}} - {{ revision.reason || (revision.cardIds.length + ' cards') }}</span>
+                                  <button mat-stroked-button (click)="revertToRevision(pack.id, revision)" [disabled]="revision.timestamp === getCurrentRevision(pack).timestamp">
+                                      Revert
+                                  </button>
+                              </div>
+                          </mat-list-item>
+                      }
+                  </mat-list>
+              </mat-expansion-panel>
+            </div>
+          </div>
+        } @else {
+          <div class="empty-pack-message">No active pack selected. Create or select a pack to begin.</div>
         }
       </div>
     </div>
   }
 </div>
 
-
 @if (hoveredCard(); as card) {
   <div class="card-image-preview"
        [style.left.px]="mousePos().x + 20"
        [style.top.px]="mousePos().y + 20"
        [class.rotated]="card.layout === 'split'">
-      <!-- Tweak 2: Prioritize top-level image_uris if it exists, even if card_faces are present -->
       @if (card.image_uris; as imageUris) {
         @if(imageUris.normal) {
           <img [src]="imageUris.normal" [alt]="card.name">
