@@ -18,8 +18,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { Observable } from 'rxjs';
-import { startWith, map, debounceTime } from 'rxjs/operators';
+import { Observable, Subscription } from 'rxjs';
+import { startWith, map, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 // --- Mana Symbol Pipe ---
 @Pipe({
@@ -90,11 +90,11 @@ interface CardDocument {
   layout?: string;
 }
 interface PersistedPack {
-  name: string; size: number; cardNames: string[]; signpostCardName?: string;
+  name: string; size: number; cardNames: (string | null)[]; signpostCardName?: string;
   archetype?: string; themes?: string; slots?: string[];
 }
 interface PackRevision {
-    name: string; size: number; cardIds: string[]; signpostCardId?: string;
+    name: string; size: number; cardIds: (string | null)[]; signpostCardId?: string;
     timestamp: number;
     reason?: string;
     archetype?: string; themes?: string; slots?: string[];
@@ -106,7 +106,7 @@ interface PackHistory {
     isDeleted: number;
 }
 interface Pack extends PackHistory {
-    cards: CardDocument[];
+    cards: (CardDocument | null)[];
 }
 
 const DEFAULT_PACK_SLOTS = [
@@ -148,7 +148,9 @@ export class App implements OnInit {
   fileErrorDetails = signal<string | null>(null);
 
   // --- Card Search & List State ---
-  searchControl = new FormControl('');
+  slotControls: FormControl[] = [];
+  private controlSubscriptions: Subscription[] = [];
+  activeSlotIndex = signal<number | null>(null);
   suggestions = signal<CardDocument[]>([]);
   hoveredCard = signal<CardDocument | null>(null);
   mousePos = signal<{x: number, y: number}>({ x: 0, y: 0 });
@@ -165,11 +167,10 @@ export class App implements OnInit {
   private db: any;
 
   constructor() {
-    this.searchControl.valueChanges.pipe(
-      startWith(''),
-      debounceTime(200),
-      map(value => this._filter(value || ''))
-    ).subscribe();
+    effect(() => {
+      const pack = this.activePack();
+      this.setupSlotControls(pack);
+    });
 
     document.addEventListener('mousemove', (event) => {
       this.mousePos.set({ x: event.clientX, y: event.clientY });
@@ -200,6 +201,32 @@ export class App implements OnInit {
     this.status.set('Waiting for database library...');
     this.initializeDatabase();
   }
+
+  private setupSlotControls(pack: Pack | undefined) {
+    this.controlSubscriptions.forEach(sub => sub.unsubscribe());
+    this.controlSubscriptions = [];
+
+    if (!pack) {
+        this.slotControls = [];
+        return;
+    }
+
+    const size = this.getCurrentRevision(pack).size;
+    this.slotControls = Array.from({ length: size }, (_, i) => new FormControl(pack.cards[i]?.name || ''));
+
+    this.slotControls.forEach((control, index) => {
+        const sub = control.valueChanges.pipe(
+            debounceTime(200),
+            distinctUntilChanged(),
+        ).subscribe(value => {
+            if (this.activeSlotIndex() === index && typeof value === 'string') {
+                this._filter(value);
+            }
+        });
+        this.controlSubscriptions.push(sub);
+    });
+  }
+
 
   private loadScript(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -430,11 +457,11 @@ export class App implements OnInit {
     const newPackForUI: Pack = {
       id: packId, name: finalName, isDeleted: 0,
       revisions: [{
-        name: finalName, size: 20, cardIds: [], timestamp: Date.now(),
+        name: finalName, size: 20, cardIds: Array(20).fill(null), timestamp: Date.now(),
         reason: 'Initial revision', archetype: 'Midrange', themes: 'Tokens, +1/+1 Counters',
         slots: [...DEFAULT_PACK_SLOTS]
       }],
-      cards: []
+      cards: Array(20).fill(null)
     };
 
     this.packs.update(currentPacks => [...currentPacks, newPackForUI]);
@@ -443,6 +470,7 @@ export class App implements OnInit {
   }
 
   async removePack(packId: string) {
+    if (!confirm('Are you sure you want to delete this pack?')) return;
     const packInDb = await this.db.packs.get(packId);
     if (packInDb) {
       await this.db.packs.update(packId, { isDeleted: 1 });
@@ -490,49 +518,46 @@ export class App implements OnInit {
 
   setActivePack(packId: string) { this.activePackId.set(packId); }
 
-  addCardToActivePack(card: CardDocument) {
+  addCardToSlot(card: CardDocument, index: number) {
     const packId = this.activePackId();
-    if (!packId) { alert('Please select a pack first!'); return; }
+    if (!packId) return;
 
     this.packs.update(packs => packs.map(p => {
         if (p.id === packId) {
-            const currentRevision = this.getCurrentRevision(p);
-            if (p.cards.length >= currentRevision.size) {
-                alert(`Pack "${p.name}" is full.`);
-                return p;
-            }
-            const updatedCards = [...p.cards, card];
-
-            if (updatedCards.length === 1 && !currentRevision.signpostCardId) {
-                const newRevision = {...currentRevision, signpostCardId: card.id };
-                return { ...p, cards: updatedCards, revisions: [...p.revisions.slice(0, -1), newRevision]};
-            }
-            return {...p, cards: updatedCards};
+            const updatedCards = [...p.cards];
+            updatedCards[index] = card;
+            return { ...p, cards: updatedCards };
         }
         return p;
     }));
 
+    this.slotControls[index].setValue(card.name, { emitEvent: false });
     this.markPackAsDirty(packId);
-    this.searchControl.setValue('');
+    this.suggestions.set([]);
   }
 
-  removeCardFromPack(packId: string, cardIndex: number) {
+  removeCardFromSlot(packId: string, index: number) {
     this.packs.update(packs => packs.map(p => {
         if (p.id === packId) {
-            const cardToRemove = p.cards[cardIndex];
-            const updatedCards = p.cards.filter((_, i) => i !== cardIndex);
+            const cardToRemove = p.cards[index];
+            if (!cardToRemove) return p;
+
+            const updatedCards = [...p.cards];
+            updatedCards[index] = null;
 
             const latestRevision = this.getCurrentRevision(p);
             if (latestRevision.signpostCardId === cardToRemove.id) {
-                 const newLatestRevision = {...latestRevision, signpostCardId: updatedCards[0]?.id };
+                 const newLatestRevision = {...latestRevision, signpostCardId: undefined };
                  return { ...p, cards: updatedCards, revisions: [...p.revisions.slice(0, -1), newLatestRevision] };
             }
             return {...p, cards: updatedCards};
         }
         return p;
     }));
+    this.slotControls[index].setValue('', { emitEvent: false });
     this.markPackAsDirty(packId);
   }
+
 
   setSignpostCard(packId: string, cardId: string) {
      this.packs.update(packs => packs.map(p => {
@@ -544,8 +569,6 @@ export class App implements OnInit {
     }));
     this.markPackAsDirty(packId);
   }
-
-  onSuggestionSelected(event: any) { this.addCardToActivePack(event.option.value); }
 
   async revertToRevision(packId: string, revision: PackRevision) {
     if (!confirm(`Are you sure you want to revert "${revision.name}" to the version from ${this.formatTimestamp(revision.timestamp)}? This will create a new revision.`)) return;
@@ -568,18 +591,24 @@ export class App implements OnInit {
   }
 
   // --- Persistence Methods ---
-  private async hydrateCardIds(cardIds: string[]): Promise<CardDocument[]> {
-      if (cardIds.length === 0) return [];
-      const cardDocs = await this.db.cards.where('id').anyOf(cardIds).toArray();
-      const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.id, c]));
-      return cardIds.map(id => cardMap.get(id)!).filter(Boolean);
+  private async hydrateCardIds(cardIds: (string | null)[]): Promise<(CardDocument | null)[]> {
+    const validIds = cardIds.filter((id): id is string => id !== null);
+    if (validIds.length === 0) return Array(cardIds.length).fill(null);
+
+    const cardDocs = await this.db.cards.where('id').anyOf(validIds).toArray();
+    const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.id, c]));
+
+    return cardIds.map(id => id ? (cardMap.get(id) || null) : null);
   }
 
-  private async hydrateCardNames(cardNames: string[]): Promise<CardDocument[]> {
-    if (cardNames.length === 0) return [];
-    const cardDocs: CardDocument[] = await this.db.cards.where('name').anyOf(cardNames).toArray();
+  private async hydrateCardNames(cardNames: (string | null)[]): Promise<(CardDocument | null)[]> {
+    const validNames = cardNames.filter((name): name is string => name !== null);
+    if (validNames.length === 0) return Array(cardNames.length).fill(null);
+
+    const cardDocs: CardDocument[] = await this.db.cards.where('name').anyOf(validNames).toArray();
     const cardMap = new Map<string, CardDocument>(cardDocs.map(c => [c.name, c]));
-    return cardNames.map(name => cardMap.get(name)!).filter(Boolean);
+
+    return cardNames.map(name => name ? (cardMap.get(name) || null) : null);
   }
 
   public getCurrentRevision(packHistory: PackHistory | Pack): PackRevision {
@@ -624,14 +653,14 @@ export class App implements OnInit {
 
     const packsToExport = this.packs().map(pack => {
         const currentRevision = this.getCurrentRevision(pack);
-        const signpostCard = pack.cards.find(c => c.id === currentRevision.signpostCardId);
+        const signpostCard = pack.cards.find(c => c?.id === currentRevision.signpostCardId);
         return {
             name: pack.name,
             size: currentRevision.size,
             archetype: currentRevision.archetype,
             themes: currentRevision.themes,
             slots: currentRevision.slots,
-            cardNames: pack.cards.map(c => c.name),
+            cardNames: pack.cards.map(c => c ? c.name : null),
             signpostCardName: signpostCard?.name,
         }
     });
@@ -660,11 +689,11 @@ export class App implements OnInit {
                 if(overwrite) {
                     const packHistory = await this.db.packs.get(existingPack.id);
                     const cards = await this.hydrateCardNames(importedPack.cardNames);
-                    const signpostCard = importedPack.signpostCardName ? cards.find(c => c.name === importedPack.signpostCardName) : undefined;
+                    const signpostCard = importedPack.signpostCardName ? cards.find(c => c?.name === importedPack.signpostCardName) : undefined;
                     const newRevision: PackRevision = {
                         name: importedPack.name,
                         size: importedPack.size,
-                        cardIds: cards.map(c => c.id),
+                        cardIds: cards.map(c => c ? c.id : null),
                         signpostCardId: signpostCard?.id,
                         timestamp: Date.now(),
                         reason: 'Imported from file',
@@ -700,14 +729,14 @@ export class App implements OnInit {
       }
 
       const cards = await this.hydrateCardNames(importedPack.cardNames);
-      const signpostCard = importedPack.signpostCardName ? cards.find(c => c.name === importedPack.signpostCardName) : undefined;
+      const signpostCard = importedPack.signpostCardName ? cards.find(c => c?.name === importedPack.signpostCardName) : undefined;
 
       const newPackHistory: PackHistory = {
           id: crypto.randomUUID(), name: finalName, isDeleted: 0,
           revisions: [{
             name: finalName,
             size: importedPack.size,
-            cardIds: cards.map(c => c.id),
+            cardIds: cards.map(c => c ? c.id : null),
             signpostCardId: signpostCard?.id,
             timestamp: Date.now(),
             reason: 'Imported from file',
@@ -750,7 +779,7 @@ export class App implements OnInit {
     const newRevision: PackRevision = {
         name: pack.name,
         size: provisionalRevision.size,
-        cardIds: pack.cards.map(c => c.id),
+        cardIds: pack.cards.map(c => c ? c.id : null),
         signpostCardId: provisionalRevision.signpostCardId,
         timestamp: Date.now(),
         reason: reason,
@@ -805,29 +834,48 @@ export class App implements OnInit {
       });
   }
 
-  getEmptySlots(pack: Pack): null[] {
-    const currentRevision = this.getCurrentRevision(pack);
-    const filledSlots = pack.cards.length;
-    const totalSlots = currentRevision.size || 20;
-    return Array(Math.max(0, totalSlots - filledSlots)).fill(null);
+  getSlotsArray(pack: Pack): number[] {
+    const size = this.getCurrentRevision(pack)?.size || 0;
+    return Array.from({ length: size }, (_, i) => i);
+  }
+
+  getFilledSlotsCount(pack: Pack): number {
+    if (!pack || !pack.cards) {
+        return 0;
+    }
+    return pack.cards.filter(card => card !== null).length;
   }
 
   // --- UI Helpers ---
-  showCardImage(card: CardDocument) { this.hoveredCard.set(card); }
-  hideCardImage() { this.hoveredCard.set(null); }
-  getSignpostCardArtCrop(pack: Pack | undefined): string | undefined {
-    if (!pack) return undefined;
-    const signpostCardId = this.getCurrentRevision(pack).signpostCardId;
-    if (!signpostCardId) return pack.cards[0]?.image_uris?.art_crop;
-    const signpostCard = pack.cards.find(c => c.id === signpostCardId);
-    if (!signpostCard) return pack.cards[0]?.image_uris?.art_crop;
-    if (signpostCard.card_faces && signpostCard.card_faces.length > 0) {
-      return signpostCard.card_faces[0].image_uris?.art_crop;
+  setActiveSlot(index: number) {
+    this.activeSlotIndex.set(index);
+    const control = this.slotControls[index];
+    if (control && typeof control.value === 'string') {
+        this._filter(control.value);
     }
-    return signpostCard.image_uris?.art_crop;
   }
 
-  public getDisplayManaCost(card: CardDocument): string {
+  showCardImage(card: CardDocument | null) { if(card) this.hoveredCard.set(card); }
+  hideCardImage() { this.hoveredCard.set(null); }
+
+  getSignpostCardArtCrop(pack: Pack | undefined): string | undefined {
+    if (!pack) return undefined;
+    const currentRevision = this.getCurrentRevision(pack);
+    const signpostCardId = currentRevision.signpostCardId;
+
+    const signpostCard = signpostCardId ? pack.cards.find(c => c?.id === signpostCardId) : undefined;
+    const firstCard = pack.cards.find(c => c !== null);
+
+    const cardToDisplay = signpostCard || firstCard;
+    if (!cardToDisplay) return undefined;
+
+    if (cardToDisplay.card_faces && cardToDisplay.card_faces.length > 0) {
+      return cardToDisplay.card_faces[0].image_uris?.art_crop;
+    }
+    return cardToDisplay.image_uris?.art_crop;
+  }
+
+  public getDisplayManaCost(card: CardDocument | null): string {
     if (!card) return '';
     if (card.mana_cost) {
         return card.mana_cost;
