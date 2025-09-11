@@ -93,11 +93,12 @@ interface CardDocument {
   layout?: string;
 }
 interface PersistedPack {
-  name: string; size: number; cardIds: string[]; signpostCardId?: string;
+  name: string; size: number; cardNames: string[]; signpostCardName?: string;
 }
-interface PackRevision extends PersistedPack {
+interface PackRevision {
+    name: string; size: number; cardIds: string[]; signpostCardId?: string;
     timestamp: number;
-    reason?: string; // Add a reason for the revision
+    reason?: string;
 }
 interface PackHistory {
     id: string; // Primary Key
@@ -170,7 +171,7 @@ export class App implements OnInit {
       return;
     }
     if (this.db?.cards) {
-       const results = await this.db.cards.where('name').startsWithIgnoreCase(filterValue).toArray();
+       const results = await this.db.cards.where('name_lowercase').startsWithIgnoreCase(filterValue).toArray();
        const filteredResults = results.filter((card: CardDocument) => {
             const typeLine = card.type_line?.toLowerCase();
             return !typeLine?.startsWith('token') && !typeLine?.includes('scheme');
@@ -317,13 +318,12 @@ export class App implements OnInit {
     const rawData: CardDocument[] = Array.isArray(jsonData) ? jsonData : jsonData.record;
     if (!Array.isArray(rawData)) throw new Error('Data is not in a recognized array format.');
 
-    // Tweak 1: Filter out cards where all faces have the same name (e.g. promo art)
     const promoArtFilteredData = rawData.filter(card => {
         if (card.card_faces && card.card_faces.length > 1) {
             const faceNames = new Set(card.card_faces.map(face => face.name));
-            return faceNames.size > 1; // Keep if there's more than one unique name
+            return faceNames.size > 1;
         }
-        return true; // Keep cards without multiple faces
+        return true;
     });
 
     const filteredData = promoArtFilteredData.filter(card => !card.reprint);
@@ -351,6 +351,7 @@ export class App implements OnInit {
     }
     this.fileErrorDetails.set(null);
     this.status.set(`Data processed. Storing ${uniqueDataToStore.length} unique, non-reprint cards...`);
+    await this.db.cards.clear(); // Clear existing cards before adding new ones
     await this.db.cards.bulkAdd(uniqueDataToStore);
     const count = await this.db.cards.count();
     this.status.set(`Successfully stored ${count} cards!`);
@@ -434,7 +435,7 @@ export class App implements OnInit {
 
     this.packs.update(currentPacks => [...currentPacks, newPackForUI]);
     this.activePackId.set(packId);
-    this.markPackAsDirty(packId); // A new pack is provisional by default
+    this.markPackAsDirty(packId);
   }
 
   async removePack(packId: string) {
@@ -546,6 +547,13 @@ export class App implements OnInit {
       return cardIds.map(id => cardMap.get(id)!).filter(Boolean);
   }
 
+  private async hydrateCardNames(cardNames: string[]): Promise<CardDocument[]> {
+    if (cardNames.length === 0) return [];
+    const cardDocs: CardDocument[] = await this.db.cards.where('name').anyOf(cardNames).toArray();
+    const cardMap = new Map<string, CardDocument>(cardDocs.map(c => [c.name, c]));
+    return cardNames.map(name => cardMap.get(name)!).filter(Boolean);
+  }
+
   public getCurrentRevision(packHistory: PackHistory | Pack): PackRevision {
       return packHistory.revisions[packHistory.revisions.length - 1];
   }
@@ -588,11 +596,12 @@ export class App implements OnInit {
 
     const packsToExport = this.packs().map(pack => {
         const currentRevision = this.getCurrentRevision(pack);
+        const signpostCard = pack.cards.find(c => c.id === currentRevision.signpostCardId);
         return {
             name: pack.name,
             size: currentRevision.size,
-            cardIds: pack.cards.map(c => c.id),
-            signpostCardId: currentRevision.signpostCardId,
+            cardNames: pack.cards.map(c => c.name),
+            signpostCardName: signpostCard?.name,
         }
     });
     const dataStr = JSON.stringify(packsToExport, null, 2);
@@ -619,7 +628,16 @@ export class App implements OnInit {
                 const overwrite = confirm(`A pack named "${importedPack.name}" already exists. Click OK to overwrite it, or Cancel to import as a new copy.`);
                 if(overwrite) {
                     const packHistory = await this.db.packs.get(existingPack.id);
-                    const newRevision: PackRevision = { ...importedPack, timestamp: Date.now(), reason: 'Imported from file' };
+                    const cards = await this.hydrateCardNames(importedPack.cardNames);
+                    const signpostCard = importedPack.signpostCardName ? cards.find(c => c.name === importedPack.signpostCardName) : undefined;
+                    const newRevision: PackRevision = {
+                        name: importedPack.name,
+                        size: importedPack.size,
+                        cardIds: cards.map(c => c.id),
+                        signpostCardId: signpostCard?.id,
+                        timestamp: Date.now(),
+                        reason: 'Imported from file'
+                    };
                     packHistory.revisions.push(newRevision);
                     await this.db.packs.put(packHistory);
                 } else {
@@ -647,9 +665,19 @@ export class App implements OnInit {
           finalName = `${importedPack.name} (${i++})`;
       }
 
+      const cards = await this.hydrateCardNames(importedPack.cardNames);
+      const signpostCard = importedPack.signpostCardName ? cards.find(c => c.name === importedPack.signpostCardName) : undefined;
+
       const newPackHistory: PackHistory = {
           id: crypto.randomUUID(), name: finalName, isDeleted: 0,
-          revisions: [{ ...importedPack, name: finalName, timestamp: Date.now(), reason: 'Imported from file' }]
+          revisions: [{
+            name: finalName,
+            size: importedPack.size,
+            cardIds: cards.map(c => c.id),
+            signpostCardId: signpostCard?.id,
+            timestamp: Date.now(),
+            reason: 'Imported from file'
+        }]
       };
       await this.db.packs.add(newPackHistory);
   }
@@ -678,10 +706,12 @@ export class App implements OnInit {
     let reason = 'Pack updated';
     const nameChanged = lastSavedRevision ? pack.name !== lastSavedRevision.name : false;
 
-    let cardsChanged = true; // Default to true for new packs
+    let cardsChanged = true;
     if (lastSavedRevision) {
-        cardsChanged = pack.cards.length !== lastSavedRevision.cardIds.length ||
-            !pack.cards.every(c => lastSavedRevision.cardIds.includes(c.id));
+        const provisionalCardIds = new Set(pack.cards.map(c => c.id));
+        const savedCardIds = new Set(lastSavedRevision.cardIds);
+        cardsChanged = provisionalCardIds.size !== savedCardIds.size ||
+            !pack.cards.every(c => savedCardIds.has(c.id));
     }
 
     if (isNewPack) {
@@ -729,14 +759,12 @@ export class App implements OnInit {
 
   async discardPackChanges(packId: string) {
       const packHistory = await this.db.packs.get(packId);
-      // If the pack isn't in the DB, it's a new, unsaved pack. Discarding it means removing it.
       if (!packHistory) {
           this.packs.update(packs => packs.filter(p => p.id !== packId));
           if (this.activePackId() === packId) {
             this.activePackId.set(this.packs()[0]?.id || null);
           }
       } else {
-        // Otherwise, revert to the last saved state from the DB.
         const currentRevision = this.getCurrentRevision(packHistory);
         const cards = await this.hydrateCardIds(currentRevision.cardIds);
         const restoredPack = { ...packHistory, cards };
@@ -754,9 +782,9 @@ export class App implements OnInit {
   hideCardImage() { this.hoveredCard.set(null); }
   getSignpostCardArtCrop(pack: Pack): string | undefined {
     const signpostCardId = this.getCurrentRevision(pack).signpostCardId;
-    if (!signpostCardId) return undefined;
+    if (!signpostCardId) return pack.cards[0]?.image_uris?.art_crop; // Default to first card
     const signpostCard = pack.cards.find(c => c.id === signpostCardId);
-    if (!signpostCard) return undefined;
+    if (!signpostCard) return pack.cards[0]?.image_uris?.art_crop; // Fallback
     if (signpostCard.card_faces && signpostCard.card_faces.length > 0) {
       return signpostCard.card_faces[0].image_uris?.art_crop;
     }
@@ -765,18 +793,16 @@ export class App implements OnInit {
 
   public getDisplayManaCost(card: CardDocument): string {
     if (!card) return '';
-    // If a top-level mana cost exists, always prefer it.
     if (card.mana_cost) {
         return card.mana_cost;
     }
-    // Tweak 4: If no top-level cost, but faces exist, concatenate face costs.
     if (card.card_faces && card.card_faces.length > 0) {
         return card.card_faces
             .map(face => face.mana_cost)
-            .filter(cost => cost && cost.length > 0) // Filter out empty strings or nulls
+            .filter(cost => cost && cost.length > 0)
             .join(' // ');
     }
-    return ''; // Default to empty string
+    return '';
   }
 
   public formatTimestamp(timestamp: number): string {
