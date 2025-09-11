@@ -43,9 +43,6 @@
   min-width: 250px;
 }
 
-.file-input {
-  display: none;
-}
 .hidden-file-input {
     display: none;
 }
@@ -166,12 +163,12 @@
 
 .packs-container {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
     gap: 24px;
 }
 
 .pack-card.active-pack {
-    border: 2px solid #009688; // Teal 500
+    border: 2px solid #009688;
     box-shadow: 0 4px 10px rgba(0, 150, 136, 0.3);
 }
 
@@ -188,7 +185,7 @@
 }
 
 .pack-name-input .mat-mdc-form-field-subscript-wrapper {
-    display: none; // Hide the underline from the form field
+    display: none;
 }
 
 .pack-meta {
@@ -215,11 +212,51 @@
     justify-content: center;
     align-items: center;
     min-height: 150px;
-    grid-column: 1 / -1; // Span full width
+    grid-column: 1 / -1; // Span full width if it's the last item
 }
 
-.mat-list-item.is-face-card {
-    background-color: #e0f2f1; // Teal 50
-    border-left: 4px solid #26a69a; // Teal 400
+.mat-list-item.is-signpost-card {
+    background-color: #e0f2f1;
+    border-left: 4px solid #26a69a;
+}
+
+// --- Provisional Change Styles ---
+.provisional-indicator {
+    color: #ffa726; // Amber 400
+    font-size: 1.2em;
+    margin-left: 4px;
+}
+
+.provisional-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 8px 8px;
+}
+
+
+// --- History Panel ---
+.history-panel {
+    margin-top: 16px;
+    box-shadow: none;
+    border-top: 1px solid rgba(0,0,0,0.12);
+
+    .mat-expansion-panel-header-title {
+        gap: 8px;
+        align-items: center;
+    }
+}
+
+.revision-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 0.9em;
+}
+
+.mat-list-item.current-revision {
+    font-weight: bold;
+    color: #00796b; // Teal 700
 }
 

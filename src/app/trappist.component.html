@@ -97,9 +97,24 @@
               <mat-icon>upload</mat-icon> Import Packs
             </button>
              <input type="file" class="hidden-file-input" #packsImporter accept=".json" (change)="importPacks($event)">
-            <button mat-stroked-button color="warn" (click)="clearDatabase()">
-              <mat-icon>delete_forever</mat-icon> Clear All Data
+            <button mat-stroked-button color="warn" [matMenuTriggerFor]="clearMenu">
+              <mat-icon>delete_forever</mat-icon> Clear Data
             </button>
+            <mat-menu #clearMenu="matMenu">
+              <button mat-menu-item (click)="clearCardData()">
+                <mat-icon>style</mat-icon>
+                <span>Clear Card Data</span>
+              </button>
+              <button mat-menu-item (click)="clearPackData()">
+                <mat-icon>inventory_2</mat-icon>
+                <span>Clear Pack Data</span>
+              </button>
+              <mat-divider></mat-divider>
+              <button mat-menu-item (click)="clearAllData()">
+                <mat-icon color="warn">warning</mat-icon>
+                <span>Clear All Data</span>
+              </button>
+            </mat-menu>
           </mat-card-content>
       </mat-card>
 
@@ -107,15 +122,16 @@
         @for (pack of packs(); track pack.id) {
           <mat-card class="pack-card" [class.active-pack]="pack.id === activePackId()">
             <mat-card-header (click)="setActivePack(pack.id)">
-               <img mat-card-avatar [src]="getFaceCardArtCrop(pack)" *ngIf="getFaceCardArtCrop(pack)" alt="Face card art">
+               <img mat-card-avatar [src]="getSignpostCardArtCrop(pack)" *ngIf="getSignpostCardArtCrop(pack)" alt="Signpost card art">
               <mat-card-title>
                  <mat-form-field class="pack-name-input">
-                    <input matInput [ngModel]="pack.name" (ngModelChange)="pack.name = $event">
+                    <input matInput [ngModel]="pack.name" (ngModelChange)="onPackNameChange(pack.id, $event)">
                   </mat-form-field>
+                  <mat-icon *ngIf="provisionalChanges().has(pack.id)" class="provisional-indicator" matTooltip="Unsaved changes">edit</mat-icon>
               </mat-card-title>
               <mat-card-subtitle class="pack-meta">
-                <span class="pack-count">{{ pack.cards.length }} / {{ pack.size }}</span>
-                 <button mat-icon-button color="warn" (click)="$event.stopPropagation(); removePack(pack.id)">
+                <span class="pack-count">{{ pack.cards.length }} / {{ getCurrentRevision(pack).size }}</span>
+                 <button mat-icon-button color="warn" (click)="$event.stopPropagation(); removePack(pack.id)" matTooltip="Delete Pack">
                     <mat-icon>delete</mat-icon>
                   </button>
               </mat-card-subtitle>
@@ -127,7 +143,7 @@
                     <mat-list-item
                         (mouseenter)="showCardImage(card)"
                         (mouseleave)="hideCardImage()"
-                        [class.is-face-card]="card.id === pack.faceCardId">
+                        [class.is-signpost-card]="card.id === getCurrentRevision(pack).signpostCardId">
                       <div class="card-list-item-content">
                         <div class="card-info">
                           <div class="card-name-mana">
@@ -151,8 +167,8 @@
                           }
                         </div>
                         <div class="card-actions">
-                          <button mat-icon-button matTooltip="Set as face card" (click)="setFaceCard(pack.id, card.id)">
-                            <mat-icon>face</mat-icon>
+                          <button mat-icon-button matTooltip="Set as signpost card" (click)="setSignpostCard(pack.id, card.id)">
+                            <mat-icon>push_pin</mat-icon>
                           </button>
                           <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromPack(pack.id, $index)">
                             <mat-icon>remove_circle_outline</mat-icon>
@@ -166,33 +182,57 @@
                 <div class="empty-pack-message">This pack is empty. Add cards using the search bar above.</div>
               }
             </mat-card-content>
+             @if(provisionalChanges().has(pack.id)) {
+                <mat-card-actions class="provisional-actions">
+                    <button mat-stroked-button color="primary" (click)="savePackChanges(pack.id)">
+                        <mat-icon>save</mat-icon> Save Changes
+                    </button>
+                    <button mat-stroked-button (click)="discardPackChanges(pack.id)">
+                        <mat-icon>undo</mat-icon> Discard
+                    </button>
+                </mat-card-actions>
+            }
+            <mat-expansion-panel class="history-panel">
+                <mat-expansion-panel-header>
+                    <mat-panel-title>
+                        <mat-icon>history</mat-icon>
+                        Revision History ({{pack.revisions.length}})
+                    </mat-panel-title>
+                </mat-expansion-panel-header>
+                <mat-list>
+                    @for(revision of pack.revisions.slice().reverse(); track revision.timestamp){
+                        <mat-list-item [class.current-revision]="revision.timestamp === getCurrentRevision(pack).timestamp">
+                            <div class="revision-item">
+                                <span>{{formatTimestamp(revision.timestamp)}} - {{ revision.reason || (revision.cardIds.length + ' cards') }}</span>
+                                <button mat-stroked-button (click)="revertToRevision(pack.id, revision)" [disabled]="revision.timestamp === getCurrentRevision(pack).timestamp">
+                                    Revert
+                                </button>
+                            </div>
+                        </mat-list-item>
+                    }
+                </mat-list>
+            </mat-expansion-panel>
           </mat-card>
         }
-        <div class="add-pack-container">
-            <button mat-fab extended color="primary" (click)="addPack()">
-                <mat-icon>add</mat-icon>
-                Add New Pack
-            </button>
-        </div>
       </div>
     </div>
   }
 </div>
 
 
-  @if (hoveredCard(); as card) {
-    <div class="card-image-preview" [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y + 20">
-        @if (card.card_faces && card.card_faces.length > 0) {
-            @for (face of card.card_faces; track $index) {
-                @if(face.image_uris?.normal){
-                  <img [src]="face.image_uris?.normal" [alt]="face.name">
-                }
-            }
-        } @else {
-           @if(card.image_uris?.normal){
-              <img [src]="card.image_uris?.normal" [alt]="card.name">
+@if (hoveredCard(); as card) {
+  <div class="card-image-preview" [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y + 20">
+      @if (card.card_faces && card.card_faces.length > 0) {
+          @for (face of card.card_faces; track $index) {
+              @if(face.image_uris?.normal){
+                <img [src]="face.image_uris?.normal" [alt]="face.name">
+              }
           }
+      } @else {
+         @if(card.image_uris?.normal){
+            <img [src]="card.image_uris?.normal" [alt]="card.name">
         }
-    </div>
-  }
+      }
+  </div>
+}
 
