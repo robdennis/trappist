@@ -10,6 +10,11 @@ permissions:
   pages: write
   id-token: write
 
+# Add this concurrency group
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,7 +31,6 @@ jobs:
         run: npm ci
 
       - name: Build Angular app
-        # Update this line with --base-href
         run: npx ng build --configuration production --base-href /trappist/
 
       - name: Upload artifact for deployment
@@ -37,11 +41,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    # Add the environment configuration here
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
-        id: deployment # Add an id to the step
+        id: deployment
         uses: actions/deploy-pages@v3
