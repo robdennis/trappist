@@ -65,12 +65,56 @@
 .suggestion-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   width: 100%;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.suggestion-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.suggestion-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+
+  &.has-mana-cost::before {
+    content: '—';
+    color: #757575;
+    margin-right: 4px;
+  }
+
+  &.no-mana-cost {
+    gap: 8px;
+  }
 }
 
 .mana-cost {
   font-size: 1.1em;
   line-height: 1;
+}
+
+.suggestion-type-line {
+  font-style: italic;
+  color: #757575;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+
+.suggestion-color-identity {
+  display: flex;
+  align-items: center;
+
+  .ms {
+    font-size: 1.1em;
+    vertical-align: text-bottom;
+  }
 }
 
 .ms {

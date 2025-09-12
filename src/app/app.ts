@@ -967,6 +967,30 @@ export class App implements OnInit {
     return '';
   }
 
+  public getColorIdentityManaString(card: CardDocument): string {
+    if (!card || !card.color_identity) {
+      return '';
+    }
+
+    if (card.color_identity.length === 0) {
+      const typeLine = card.type_line?.toLowerCase() || '';
+      // Don't show color indicator for lands unless they have a color identity
+      if (typeLine.includes('land')) {
+        return '';
+      }
+      // For colorless artifacts, creatures, etc.
+      return '{ci-c}';
+    }
+
+    // Using WUBRG order for consistency
+    const colorOrder: { [key: string]: number } = { 'W': 1, 'U': 2, 'B': 3, 'R': 4, 'G': 5 };
+    const sortedIdentity = [...card.color_identity]
+      .sort((a, b) => (colorOrder[a] || 99) - (colorOrder[b] || 99))
+      .join('');
+
+    return `{ci-${sortedIdentity.toLowerCase()}}`;
+  }
+
   public formatTimestamp(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
   }

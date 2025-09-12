@@ -220,14 +220,23 @@
                                                 [matAutocomplete]="auto"
                                                 (focus)="setActiveSlot(slotIndex)">
                                             <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="addCardToSlot($event.option.value, slotIndex)">
-                                            @for (suggestion of suggestions(); track suggestion.id) {
+                                              @for (suggestion of suggestions(); track suggestion.id) {
                                                 <mat-option [value]="suggestion">
-                                                <div class="suggestion-item">
-                                                    <span>{{ suggestion.name }}</span>
-                                                    <span class="mana-cost" [innerHTML]="getDisplayManaCost(suggestion) | manaSymbol"></span>
-                                                </div>
+                                                  <div class="suggestion-item">
+                                                    <span class="suggestion-name">{{ suggestion.name }}</span>
+                                                    @if (getDisplayManaCost(suggestion); as manaCost) {
+                                                      <span class="suggestion-meta has-mana-cost">
+                                                        <span class="mana-cost" [innerHTML]="manaCost | manaSymbol"></span>
+                                                      </span>
+                                                    } @else {
+                                                      <span class="suggestion-meta no-mana-cost">
+                                                        <span class="suggestion-color-identity" [innerHTML]="getColorIdentityManaString(suggestion) | manaSymbol"></span>
+                                                        <span class="suggestion-type-line">{{ suggestion.type_line }}</span>
+                                                      </span>
+                                                    }
+                                                  </div>
                                                 </mat-option>
-                                            }
+                                              }
                                             </mat-autocomplete>
                                         </mat-form-field>
                                     </div>
