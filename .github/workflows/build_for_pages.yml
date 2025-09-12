@@ -35,7 +35,6 @@ jobs:
       - name: Upload artifact for deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          # Correct the path to point to the browser output directory
           path: dist/trappist/browser
 
   deploy:
