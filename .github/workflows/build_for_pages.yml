@@ -24,7 +24,6 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          # Update this line to your local Node.js version
           node-version: '22'
 
       - name: Install dependencies
@@ -33,13 +32,11 @@ jobs:
       - name: Build Angular app
         run: npx ng build --configuration production --base-href /trappist/
 
-      - name: List output files
-        run: ls -R dist/trappist
-
       - name: Upload artifact for deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/trappist
+          # Correct the path to point to the browser output directory
+          path: dist/trappist/browser
 
   deploy:
     needs: build
