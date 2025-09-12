@@ -18,8 +18,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { Observable, Subscription } from 'rxjs';
-import { startWith, map, debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { Subscription } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { DragDropModule, CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 
 // --- Mana Symbol Pipe ---
@@ -76,6 +76,16 @@ declare namespace Dexie {
 }
 
 // --- Data Structures ---
+interface ScryfallBulkData {
+  id: string;
+  type: 'oracle_cards' | 'unique_artwork' | 'default_cards' | 'all_cards' | string;
+  name: string;
+  description: string;
+  download_uri: string;
+  updated_at: string;
+  size: number;
+  content_type: string;
+}
 interface CardFace {
   name: string;
   image_uris?: { normal?: string; art_crop?: string; };
@@ -143,10 +153,12 @@ export class App implements OnInit {
   isLoading = signal<boolean>(false);
   dataExists = signal<boolean>(false);
   cardCount = signal<number>(0);
-  jsonUrl = signal<string>('https://api.jsonbin.io/v3/b/66dae6a8e41b4d34e403d15b');
-  inputMode = signal<'url' | 'file'>('url');
   selectedFile = signal<File | null>(null);
   fileErrorDetails = signal<string | null>(null);
+
+  // --- Scryfall Bulk Data State ---
+  isLoadingOptions = signal<boolean>(true);
+  bulkDataOptions = signal<ScryfallBulkData[]>([]);
 
   // --- Card Search & List State ---
   slotControls: FormControl[] = [];
@@ -259,6 +271,9 @@ export class App implements OnInit {
       this.db = new TrappistDB();
       this.status.set('Database initialized. Checking for local data...');
       await this.checkIfDataExists();
+       if (!this.dataExists()) {
+        this.fetchBulkDataOptions();
+      }
     } catch (error) {
       console.error('Failed to load or initialize Dexie database:', error);
       this.status.set('Error: Could not load database library.');
@@ -288,6 +303,27 @@ export class App implements OnInit {
     }
   }
 
+  async fetchBulkDataOptions() {
+    this.isLoadingOptions.set(true);
+    this.status.set('Fetching bulk data options from Scryfall...');
+    try {
+      const response = await fetch('https://api.scryfall.com/bulk-data');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch bulk data list: ${response.statusText}`);
+      }
+      const result = await response.json();
+      const relevantTypes = new Set(['oracle_cards', 'unique_artwork', 'default_cards', 'all_cards', 'rulings']);
+      this.bulkDataOptions.set(result.data.filter((d: ScryfallBulkData) => relevantTypes.has(d.type)));
+      this.status.set('Ready to download or upload card data.');
+    } catch (error) {
+      console.error('Failed to fetch bulk data options:', error);
+      if (error instanceof Error) this.status.set(`Error: ${error.message}`);
+      else this.status.set('An unknown error occurred while fetching bulk data options.');
+    } finally {
+      this.isLoadingOptions.set(false);
+    }
+  }
+
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     this.fileErrorDetails.set(null);
@@ -295,13 +331,23 @@ export class App implements OnInit {
     else this.selectedFile.set(null);
   }
 
-  async downloadAndStoreData() {
-    if (!this.jsonUrl()) return;
+  async downloadAndStoreData(option: ScryfallBulkData) {
+    if (!option.download_uri) return;
+
+    if (option.type === 'all_cards') {
+      const confirmation = confirm(
+        'You are about to download and process the "All Cards" file, which is over 2GB in size. ' +
+        'This may take a very long time and consume a lot of browser memory and disk space. ' +
+        'Are you sure you want to continue?'
+      );
+      if (!confirmation) return;
+    }
+
     this.isLoading.set(true);
     this.fileErrorDetails.set(null);
-    this.status.set('Downloading data...');
+    this.status.set(`Downloading data for "${option.name}"...`);
     try {
-      const response = await fetch(this.jsonUrl());
+      const response = await fetch(option.download_uri);
       if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       const jsonData = await response.json();
       await this.storeDataInDb(jsonData);
@@ -400,6 +446,7 @@ export class App implements OnInit {
         this.cardCount.set(0);
         this.packs.set([]);
         this.activePackId.set(null);
+        this.fetchBulkDataOptions();
     } catch (error) {
         this.status.set('Error clearing card data.');
         console.error('Error clearing card data:', error);
@@ -436,6 +483,7 @@ export class App implements OnInit {
         this.cardCount.set(0);
         this.selectedFile.set(null);
         this.packs.set([]);
+        this.fetchBulkDataOptions();
     } catch (error) {
         this.status.set('Error clearing all data.');
         console.error('Error clearing all data:', error);
@@ -921,6 +969,45 @@ export class App implements OnInit {
 
   public formatTimestamp(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
+  }
+
+  public downloadFileLocally(option: ScryfallBulkData) {
+    if (option.type === 'all_cards') {
+        const confirmation = confirm(
+          'You are about to download the "All Cards" file, which is over 2GB in size. ' +
+          'This may take a while. Are you sure you want to download it to your computer?'
+        );
+        if (!confirmation) {
+          return;
+        }
+    }
+    const link = document.createElement('a');
+    link.href = option.download_uri;
+    link.setAttribute('download', `${option.type}.json`);
+    link.setAttribute('target', '_blank');
+    link.setAttribute('rel', 'noopener noreferrer');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  public formatBytes(bytes: number, decimals = 2): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+
+  public formatLastUpdated(dateString: string): string {
+    return new Date(dateString).toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
 }
 

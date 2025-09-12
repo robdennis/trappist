@@ -10,43 +10,58 @@
         <mat-card-subtitle>{{ status() }}</mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
-        @if (isChecking()) {
+        @if (isChecking() || isLoadingOptions()) {
           <div class="spinner-container">
             <mat-progress-spinner mode="indeterminate"></mat-progress-spinner>
           </div>
         } @else {
-          <div class="data-controls">
-            <mat-button-toggle-group [(ngModel)]="inputMode" aria-label="Input Mode">
-              <mat-button-toggle value="url">From URL</mat-button-toggle>
-              <mat-button-toggle value="file">From File</mat-button-toggle>
-            </mat-button-toggle-group>
-
-            @if (inputMode() === 'url') {
-              <div class="input-row">
-                <mat-form-field class="full-width">
-                  <mat-label>JSON Data URL</mat-label>
-                  <input matInput [ngModel]="jsonUrl()" (ngModelChange)="jsonUrl.set($event)">
-                </mat-form-field>
-                <button mat-raised-button color="primary" (click)="downloadAndStoreData()" [disabled]="isLoading()">
-                  {{ isLoading() ? 'Downloading...' : 'Download Data' }}
-                </button>
-              </div>
-            } @else {
-              <div class="input-row">
-                 <button mat-stroked-button color="primary" (click)="fileInput.click()">
-                    <mat-icon>upload_file</mat-icon>
-                    Choose File
-                  </button>
-                  <input hidden (change)="onFileSelected($event)" #fileInput type="file" accept=".json">
-                  @if (selectedFile(); as file) {
-                    <span class="file-name">{{ file.name }}</span>
-                  }
-                  <button mat-raised-button color="primary" (click)="uploadAndStoreData()" [disabled]="!selectedFile() || isLoading()">
-                     {{ isLoading() ? 'Uploading...' : 'Upload Data' }}
-                  </button>
-              </div>
-            }
+          <!-- Local File Upload -->
+          <h3 class="data-source-header">Option 1: Upload from a local file</h3>
+          <p class="data-source-description">
+            If you have already downloaded a Scryfall bulk data JSON file, you can upload it here.
+          </p>
+          <div class="input-row">
+              <button mat-stroked-button color="primary" (click)="fileInput.click()">
+                <mat-icon>upload_file</mat-icon>
+                Choose File
+              </button>
+              <input hidden (change)="onFileSelected($event)" #fileInput type="file" accept=".json">
+              @if (selectedFile(); as file) {
+                <span class="file-name">{{ file.name }}</span>
+              }
+              <button mat-raised-button color="primary" (click)="uploadAndStoreData()" [disabled]="!selectedFile() || isLoading()">
+                  {{ isLoading() ? 'Uploading...' : 'Upload Data' }}
+              </button>
           </div>
+
+          <mat-divider class="section-divider"></mat-divider>
+
+          <!-- Scryfall Bulk Data Options -->
+          <h3 class="data-source-header">Option 2: Load directly from Scryfall</h3>
+          <p class="data-source-description">
+            Select a dataset to download from Scryfall and load it directly into the application's local database.
+          </p>
+          <mat-list>
+            @for (option of bulkDataOptions(); track option.id) {
+              <mat-list-item class="bulk-data-item">
+                <mat-icon matListItemIcon>description</mat-icon>
+                <div matListItemTitle class="item-title">{{ option.name }}</div>
+                <div matListItemLine class="item-description">{{ option.description }}</div>
+                <div matListItemLine class="item-meta">
+                  <span><strong>Size:</strong> {{ formatBytes(option.size) }}</span>
+                  <span><strong>Last Updated:</strong> {{ formatLastUpdated(option.updated_at) }}</span>
+                </div>
+                <div matListItemMeta class="item-actions">
+                    <button mat-stroked-button (click)="downloadFileLocally(option)" matTooltip="Download this file to your computer for later use.">
+                      <mat-icon>download</mat-icon> Download to Computer
+                    </button>
+                    <button mat-raised-button color="primary" (click)="downloadAndStoreData(option)" [disabled]="isLoading()">
+                      {{ isLoading() ? 'Loading...' : 'Load into App' }}
+                    </button>
+                </div>
+              </mat-list-item>
+            }
+          </mat-list>
         }
         @if (isLoading()) {
           <mat-progress-bar mode="indeterminate"></mat-progress-bar>

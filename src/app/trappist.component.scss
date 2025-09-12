@@ -404,3 +404,51 @@
     color: #00796b; // Teal 700
 }
 
+// Styles for the new data loading UI
+.data-source-header {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.data-source-description {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 0.9em;
+  color: #aaa;
+}
+
+.section-divider {
+  margin: 32px 0;
+}
+
+.bulk-data-item {
+  height: auto !important; // Override default height
+  padding: 16px 0;
+
+  .item-title {
+    font-weight: 500;
+    font-size: 1.1em;
+  }
+
+  .item-description {
+    white-space: normal;
+    padding: 4px 0;
+    font-size: 0.9em;
+  }
+
+  .item-meta {
+    font-size: 0.8em;
+    color: #9e9e9e;
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+  }
+
+  .item-actions {
+    display: flex;
+    gap: 12px;
+    margin-left: 16px;
+  }
+}
+
