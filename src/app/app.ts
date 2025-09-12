@@ -20,6 +20,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Observable, Subscription } from 'rxjs';
 import { startWith, map, debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { DragDropModule, CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 
 // --- Mana Symbol Pipe ---
 @Pipe({
@@ -129,7 +130,7 @@ const DEFAULT_PACK_SLOTS = [
     MatFormFieldModule, MatInputModule, MatProgressBarModule, MatProgressSpinnerModule,
     MatToolbarModule, MatButtonToggleModule, MatAutocompleteModule, MatListModule,
     MatIconModule, MatSelectModule, ManaSymbolPipe, MatExpansionModule, MatTooltipModule,
-    MatMenuModule, MatDividerModule
+    MatMenuModule, MatDividerModule, DragDropModule
   ],
   templateUrl: './trappist.component.html',
   styleUrls: ['./trappist.component.scss'],
@@ -556,6 +557,35 @@ export class App implements OnInit {
     }));
     this.slotControls[index].setValue('', { emitEvent: false });
     this.markPackAsDirty(packId);
+  }
+
+  onCardDrop(event: CdkDragDrop<(CardDocument | null)[]>) {
+    const packId = this.activePackId();
+    if (!packId || event.previousIndex === event.currentIndex) return;
+
+    this.packs.update(packs => packs.map(p => {
+        if (p.id === packId) {
+            const updatedCards = [...p.cards];
+
+            const latestRevision = this.getCurrentRevision(p);
+            const updatedSlots = [...(latestRevision.slots || [])];
+
+            moveItemInArray(updatedCards, event.previousIndex, event.currentIndex);
+            moveItemInArray(updatedSlots, event.previousIndex, event.currentIndex);
+
+            const updatedRevision = { ...latestRevision, slots: updatedSlots };
+
+            return { ...p, cards: updatedCards, revisions: [...p.revisions.slice(0, -1), updatedRevision] };
+        }
+        return p;
+    }));
+
+    this.markPackAsDirty(packId);
+
+    const pack = this.activePack();
+    if (pack) {
+        this.setupSlotControls(pack);
+    }
   }
 
 

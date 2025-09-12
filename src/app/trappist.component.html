@@ -157,62 +157,70 @@
                     }
                 </div>
 
-                <div class="card-slots-grid">
-                    @for (slotIndex of getSlotsArray(pack); track slotIndex) {
-                      @if(pack.cards[slotIndex]; as card) {
-                        <!-- Filled Slot -->
-                        <div class="slot-label">
-                          <input class="slot-input"
-                                 [ngModel]="getCurrentRevision(pack).slots?.[slotIndex]"
-                                 (ngModelChange)="onSlotLabelChange(pack.id, slotIndex, $event)">
-                        </div>
-                        <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
-                            <span [innerHTML]="getDisplayManaCost(card) | manaSymbol"></span>
-                        </div>
-                        <div class="card-cell"
-                            (mouseenter)="showCardImage(card)"
-                            (mouseleave)="hideCardImage()"
-                            [class.is-signpost-card]="card.id === getCurrentRevision(pack).signpostCardId">
-                            <span class="card-name">{{ card.name }}</span>
-                        </div>
-                        <div class="actions-cell">
-                            <button mat-icon-button matTooltip="Set as signpost card" (click)="setSignpostCard(pack.id, card.id)">
-                                <mat-icon>push_pin</mat-icon>
-                            </button>
-                            <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromSlot(pack.id, slotIndex)">
-                                <mat-icon>remove_circle_outline</mat-icon>
-                            </button>
-                        </div>
-                      } @else {
-                        <!-- Empty Slot -->
-                         <div class="slot-label">
-                            <input class="slot-input"
-                                   [ngModel]="getCurrentRevision(pack).slots?.[slotIndex]"
-                                   (ngModelChange)="onSlotLabelChange(pack.id, slotIndex, $event)">
-                         </div>
-                         <div class="mana-cost-cell empty"></div>
-                         <div class="card-cell empty">
-                            <mat-form-field class="slot-search-field">
-                                <input type="text"
-                                       matInput
-                                       [formControl]="slotControls[slotIndex]"
-                                       [matAutocomplete]="auto"
-                                       (focus)="setActiveSlot(slotIndex)">
-                                <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="addCardToSlot($event.option.value, slotIndex)">
-                                  @for (suggestion of suggestions(); track suggestion.id) {
-                                    <mat-option [value]="suggestion">
-                                      <div class="suggestion-item">
-                                          <span>{{ suggestion.name }}</span>
-                                          <span class="mana-cost" [innerHTML]="getDisplayManaCost(suggestion) | manaSymbol"></span>
-                                      </div>
-                                    </mat-option>
-                                  }
-                                </mat-autocomplete>
-                            </mat-form-field>
-                         </div>
-                         <div class="actions-cell empty"></div>
-                      }
-                    }
+                <div class="card-slots-grid-container">
+                    <div class="slot-labels-column">
+                        @for (slotIndex of getSlotsArray(pack); track slotIndex) {
+                            <div class="slot-label">
+                                <input class="slot-input"
+                                       [ngModel]="getCurrentRevision(pack).slots?.[slotIndex]"
+                                       (ngModelChange)="onSlotLabelChange(pack.id, slotIndex, $event)">
+                            </div>
+                        }
+                    </div>
+                    <div class="card-drop-list" cdkDropList [cdkDropListData]="pack.cards" (cdkDropListDropped)="onCardDrop($event)">
+                        @for (slotIndex of getSlotsArray(pack); track slotIndex) {
+                            <div class="card-row" cdkDrag [cdkDragData]="pack.cards[slotIndex]" [cdkDragDisabled]="!pack.cards[slotIndex]">
+                                <div class="slot-drag-handle" cdkDragHandle>
+                                    @if (pack.cards[slotIndex]) {
+                                        <mat-icon>drag_indicator</mat-icon>
+                                    }
+                                </div>
+                                @if(pack.cards[slotIndex]; as card) {
+                                    <!-- Filled Slot -->
+                                    <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
+                                        <span [innerHTML]="getDisplayManaCost(card) | manaSymbol"></span>
+                                    </div>
+                                    <div class="card-cell"
+                                        (mouseenter)="showCardImage(card)"
+                                        (mouseleave)="hideCardImage()"
+                                        [class.is-signpost-card]="card.id === getCurrentRevision(pack).signpostCardId">
+                                        <span class="card-name">{{ card.name }}</span>
+                                    </div>
+                                    <div class="actions-cell">
+                                        <button mat-icon-button matTooltip="Set as signpost card" (click)="setSignpostCard(pack.id, card.id)">
+                                            <mat-icon>push_pin</mat-icon>
+                                        </button>
+                                        <button mat-icon-button color="warn" matTooltip="Remove card" (click)="removeCardFromSlot(pack.id, slotIndex)">
+                                            <mat-icon>remove_circle_outline</mat-icon>
+                                        </button>
+                                    </div>
+                                } @else {
+                                    <!-- Empty Slot -->
+                                    <div class="mana-cost-cell empty"></div>
+                                    <div class="card-cell empty">
+                                        <mat-form-field class="slot-search-field">
+                                            <input type="text"
+                                                matInput
+                                                [formControl]="slotControls[slotIndex]"
+                                                [matAutocomplete]="auto"
+                                                (focus)="setActiveSlot(slotIndex)">
+                                            <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="addCardToSlot($event.option.value, slotIndex)">
+                                            @for (suggestion of suggestions(); track suggestion.id) {
+                                                <mat-option [value]="suggestion">
+                                                <div class="suggestion-item">
+                                                    <span>{{ suggestion.name }}</span>
+                                                    <span class="mana-cost" [innerHTML]="getDisplayManaCost(suggestion) | manaSymbol"></span>
+                                                </div>
+                                                </mat-option>
+                                            }
+                                            </mat-autocomplete>
+                                        </mat-form-field>
+                                    </div>
+                                    <div class="actions-cell empty"></div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>
 
                 <mat-expansion-panel class="history-panel">
