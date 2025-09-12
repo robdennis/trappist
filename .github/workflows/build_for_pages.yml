@@ -10,7 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-# Add this concurrency group
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -32,6 +31,10 @@ jobs:
 
       - name: Build Angular app
         run: npx ng build --configuration production --base-href /trappist/
+
+      # Add this new diagnostic step
+      - name: List output files
+        run: ls -R dist/trappist
 
       - name: Upload artifact for deployment
         uses: actions/upload-pages-artifact@v3
