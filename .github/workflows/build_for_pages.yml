@@ -13,30 +13,35 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Use the latest actions/checkout version
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4 # Use the latest actions/setup-node version
+        uses: actions/setup-node@v4
         with:
-          node-version: '22' # Specify your desired Node.js version
+          node-version: '20'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build Angular app
-        run: npx ng build --configuration production # Build for production
+        # Update this line with --base-href
+        run: npx ng build --configuration production --base-href /trappist/
 
       - name: Upload artifact for deployment
-        uses: actions/upload-pages-artifact@v3 # Use the latest upload-pages-artifact version
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/trappist # Replace <your-app-name> with your project's output folder name
+          path: dist/trappist
 
   deploy:
-    needs: build # This job depends on the build job
+    needs: build
     runs-on: ubuntu-latest
+    # Add the environment configuration here
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v3 # Use the latest deploy-pages version
+        id: deployment # Add an id to the step
+        uses: actions/deploy-pages@v3
