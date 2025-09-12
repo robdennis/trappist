@@ -220,23 +220,21 @@
                                                 [matAutocomplete]="auto"
                                                 (focus)="setActiveSlot(slotIndex)">
                                             <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn" (optionSelected)="addCardToSlot($event.option.value, slotIndex)">
-                                              @for (suggestion of suggestions(); track suggestion.id) {
-                                                <mat-option [value]="suggestion">
+                                            @for (suggestion of suggestions(); track suggestion.id) {
+                                                <mat-option [value]="suggestion" (mouseenter)="showCardImage(suggestion)" (mouseleave)="hideCardImage()">
                                                   <div class="suggestion-item">
                                                     <span class="suggestion-name">{{ suggestion.name }}</span>
-                                                    @if (getDisplayManaCost(suggestion); as manaCost) {
-                                                      <span class="suggestion-meta has-mana-cost">
+                                                    <span class="suggestion-meta" [class.has-mana-cost]="getDisplayManaCost(suggestion)" [class.no-mana-cost]="!getDisplayManaCost(suggestion)">
+                                                      @if (getDisplayManaCost(suggestion); as manaCost) {
                                                         <span class="mana-cost" [innerHTML]="manaCost | manaSymbol"></span>
-                                                      </span>
-                                                    } @else {
-                                                      <span class="suggestion-meta no-mana-cost">
+                                                      } @else {
                                                         <span class="suggestion-color-identity" [innerHTML]="getColorIdentityManaString(suggestion) | manaSymbol"></span>
                                                         <span class="suggestion-type-line">{{ suggestion.type_line }}</span>
-                                                      </span>
-                                                    }
+                                                      }
+                                                    </span>
                                                   </div>
                                                 </mat-option>
-                                              }
+                                            }
                                             </mat-autocomplete>
                                         </mat-form-field>
                                     </div>
@@ -297,4 +295,5 @@
       }
   </div>
 }
+
 
