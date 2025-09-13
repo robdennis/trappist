@@ -84,7 +84,6 @@ interface ScryfallBulkData {
   download_uri: string;
   updated_at: string;
   size: number;
-  content_type: string;
 }
 interface CardFace {
   name: string;
@@ -155,6 +154,7 @@ export class App implements OnInit {
   cardCount = signal<number>(0);
   selectedFile = signal<File | null>(null);
   fileErrorDetails = signal<string | null>(null);
+  dbSize = signal<string>('');
 
   // --- Scryfall Bulk Data State ---
   isLoadingOptions = signal<boolean>(true);
@@ -433,6 +433,39 @@ export class App implements OnInit {
     this.status.set(`Successfully stored ${count} cards!`);
     this.dataExists.set(true);
     this.cardCount.set(count);
+  }
+
+  async updateDbSize() {
+    // navigator.storage.estimate() provides the most reliable and standard way.
+    if (navigator.storage && navigator.storage.estimate) {
+      try {
+        const estimate = await navigator.storage.estimate();
+        if (typeof estimate.usage !== 'undefined') {
+          // This gives total storage for the origin, which is a good proxy.
+          this.dbSize.set(this.formatBytes(estimate.usage));
+          return;
+        }
+      } catch (error) {
+        console.warn("Could not estimate storage usage:", error);
+      }
+    }
+
+    // Fallback to the experimental/non-standard indexedDB.databases() method.
+    // Note: The 'size' property is not part of the spec and only available in some browsers.
+    if ('indexedDB' in window && (window.indexedDB as any).databases) {
+      try {
+        const databases = await (window.indexedDB as any).databases();
+        const dbInfo = databases.find((db: any) => db.name === 'TrappistDB');
+        if (dbInfo && dbInfo.size) {
+          this.dbSize.set(this.formatBytes(dbInfo.size));
+          return;
+        }
+      } catch (error) {
+        console.error("Error getting database size via indexedDB.databases():", error);
+      }
+    }
+
+    this.dbSize.set(''); // Reset if size cannot be determined
   }
 
   async clearCardData() {
@@ -1034,4 +1067,3 @@ export class App implements OnInit {
     });
   }
 }
-

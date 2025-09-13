@@ -98,7 +98,10 @@
                 <mat-icon>delete</mat-icon> Delete Active Pack
               </button>
            }
-          <button mat-stroked-button color="warn" [matMenuTriggerFor]="clearMenu">
+          <button mat-stroked-button color="warn" [matMenuTriggerFor]="clearMenu"
+                  (mouseenter)="updateDbSize()"
+                  [matTooltip]="dbSize() ? 'Local Data Size: ' + dbSize() : 'View options to clear local data'"
+                  matTooltipPosition="above">
             <mat-icon>delete_forever</mat-icon> Clear All Data
           </button>
           <mat-menu #clearMenu="matMenu">
@@ -295,5 +298,3 @@
       }
   </div>
 }
-
-
