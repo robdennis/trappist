@@ -515,3 +515,27 @@
   gap: 16px;
 }
 
+.tag-progress-container {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+
+  h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+  }
+
+  .progress-details {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9em;
+    color: #616161;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+}
+

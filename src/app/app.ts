@@ -145,6 +145,17 @@ interface Tag {
   updated_at: number;
 }
 
+interface TaggingProgress {
+  status: string;
+  currentTag?: string;
+  currentTagMatches?: number;
+  totalTags: number;
+  processedTags: number;
+  elapsedTime: string;
+  initialDbSize?: number;
+  finalDbSize?: number;
+}
+
 const DEFAULT_PACK_SLOTS = [
   'Board Advantage', 'Board Advantage', 'Board Advantage', 'Board Advantage',
   'Flex', 'Flex',
@@ -207,6 +218,7 @@ export class App implements OnInit {
   tags = signal<Tag[]>([]);
   selectedTag = signal<Tag | null>(null);
   isLoadingTags = signal<boolean>(false);
+  taggingProgress = signal<TaggingProgress | null>(null);
   @ViewChild('tagsImporter') tagsImporter!: ElementRef<HTMLInputElement>;
 
   private tagMap = computed(() => new Map(this.tags().map(t => [t.short_name, t])));
@@ -1078,7 +1090,11 @@ export class App implements OnInit {
   }
 
   async cacheRemoteTag(tagId: string) {
-    const tag = this.tags().find(t => t.id === tagId);
+    let tag = this.selectedTag();
+    if (!tag || tag.id !== tagId) {
+        tag = this.tags().find(t => t.id === tagId) ?? null;
+    }
+
     if (!tag || tag.type !== 'remote' || !tag.scryfall_query) return;
 
     this.isLoadingTags.set(true);
@@ -1096,14 +1112,20 @@ export class App implements OnInit {
         const pageData = await response.json();
         const names = pageData.data.map((card: any) => card.name);
         allCardNames.push(...names);
+        this.status.set(`Caching... Fetched ${allCardNames.length} card names for "${tag.name}"...`);
+
+        // Update the signal for immediate feedback in the UI
+        this.selectedTag.update(currentTag => {
+            if (currentTag && currentTag.id === tagId) {
+                return { ...currentTag, cached_card_names: [...allCardNames] };
+            }
+            return currentTag;
+        });
+
         next_page_url = pageData.has_more ? pageData.next_page : null;
         if (next_page_url) await new Promise(resolve => setTimeout(resolve, 100)); // Be nice to API
       }
-
-      const updatedTag: Tag = { ...tag, cached_card_names: allCardNames, updated_at: Date.now() };
-      await this.db.tags.put(updatedTag);
-      await this.loadTagsFromDb();
-      this.status.set(`Cached ${allCardNames.length} cards for tag "${tag.name}".`);
+      this.status.set(`Finished caching ${allCardNames.length} cards for tag "${tag.name}". Save the tag to persist changes.`);
     } catch (error) {
       console.error('Failed to cache remote tag:', error);
       if (error instanceof Error) this.status.set(`Error caching tag: ${error.message}`);
@@ -1117,56 +1139,132 @@ export class App implements OnInit {
     if (!confirm('This will clear all existing tags from cards and re-apply them based on current tag definitions. This may take a moment. Continue?')) return;
 
     this.isLoading.set(true);
-    this.status.set('Applying tags...');
+    const startTime = Date.now();
+    let timerInterval: any;
+
     try {
-      const allCards: CardDocument[] = await this.db.cards.toArray();
+      const initialEstimate = await navigator.storage.estimate();
+      const initialDbSize = initialEstimate.usage || 0;
+
       const allTags: Tag[] = await this.db.tags.toArray();
+      const allCards: CardDocument[] = await this.db.cards.toArray();
 
-      allCards.forEach(card => card.tags = []);
+      this.taggingProgress.set({
+        status: 'Initializing...',
+        totalTags: allTags.length,
+        processedTags: 0,
+        elapsedTime: '0.0s',
+        initialDbSize
+      });
 
+      timerInterval = setInterval(() => {
+        this.taggingProgress.update(p => {
+          if (!p) return null;
+          const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+          return { ...p, elapsedTime: `${elapsedTime}s` };
+        });
+      }, 100);
+
+      // 1. Clear all existing tags
+      this.taggingProgress.update(p => p ? { ...p, status: 'Clearing existing tags from all cards...' } : p);
+      allCards.forEach((card: CardDocument) => card.tags = []);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI update
+
+      // 2. Apply each tag
+      let processedTags = 0;
       for (const tag of allTags) {
+        processedTags++;
+        let currentTagMatches = 0;
+        this.taggingProgress.update(p => p ? {
+          ...p,
+          status: 'Applying tags...',
+          processedTags,
+          currentTag: tag.name,
+          currentTagMatches: 0
+        } : p);
+        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI to render progress
+
         if (tag.type === 'local' && tag.query && tag.query.field) {
           const { field, op, value } = tag.query;
-          const regex = op === 'regex' ? new RegExp(value, 'i') : null;
+          const regex = (op === 'regex' && typeof value === 'string') ? new RegExp(value, 'i') : null;
 
           for (const card of allCards) {
             let match = false;
             const cardValue = (card as any)[field];
-            if (cardValue === undefined) continue;
+            if (cardValue === undefined || cardValue === null) continue;
 
-            if (regex && typeof cardValue === 'string') {
-              if (regex.test(cardValue)) match = true;
-            } else if (typeof cardValue === 'number') {
-              switch (op) {
-                case 'lt': if (cardValue < value) match = true; break;
-                case 'lte': if (cardValue <= value) match = true; break;
-                case 'eq': if (cardValue === value) match = true; break;
-                case 'gte': if (cardValue >= value) match = true; break;
-                case 'gt': if (cardValue > value) match = true; break;
-                case 'ne': if (cardValue !== value) match = true; break;
+            if (Array.isArray(cardValue)) {
+              if (regex) {
+                if (cardValue.some(item => typeof item === 'string' && regex.test(item))) match = true;
+              } else if (op === 'eq') {
+                if (cardValue.some(item => String(item).toLowerCase() === String(value).toLowerCase())) match = true;
               }
             }
-            if (match) card.tags!.push(tag.short_name);
+            else if (typeof cardValue === 'string') {
+              if (regex) {
+                if (regex.test(cardValue)) match = true;
+              } else if (op === 'eq') {
+                if (cardValue.toLowerCase() === String(value).toLowerCase()) match = true;
+              }
+            }
+            else if (typeof cardValue === 'number' && (typeof value === 'number' || typeof value === 'string')) {
+              const numValue = Number(value);
+              if (!isNaN(numValue)) {
+                  switch (op) {
+                    case 'lt': if (cardValue < numValue) match = true; break;
+                    case 'lte': if (cardValue <= numValue) match = true; break;
+                    case 'eq': if (cardValue === numValue) match = true; break;
+                    case 'gte': if (cardValue >= numValue) match = true; break;
+                    case 'gt': if (cardValue > numValue) match = true; break;
+                    case 'ne': if (cardValue !== numValue) match = true; break;
+                  }
+              }
+            }
+
+            if (match) {
+              if (!card.tags) card.tags = [];
+              card.tags.push(tag.short_name);
+              currentTagMatches++;
+            }
           }
         } else if (tag.type === 'remote' && tag.cached_card_names) {
           const nameSet = new Set(tag.cached_card_names);
           for (const card of allCards) {
             if (nameSet.has(card.name)) {
+              if (!card.tags) card.tags = [];
               card.tags!.push(tag.short_name);
+              currentTagMatches++;
             }
           }
         }
+        this.taggingProgress.update(p => p ? { ...p, currentTagMatches } : p);
       }
 
-      allCards.forEach(card => {
+      // 3. Finalize and save
+      allCards.forEach((card: CardDocument) => {
         if (card.tags) card.tags = [...new Set(card.tags)];
       });
 
-      this.status.set('Saving tag updates to database...');
+      this.taggingProgress.update(p => p ? { ...p, status: 'Saving tag updates to database...' } : p);
       await this.db.cards.bulkPut(allCards);
+
+      const finalEstimate = await navigator.storage.estimate();
+      const finalDbSize = finalEstimate.usage || 0;
+
+      clearInterval(timerInterval);
+      this.taggingProgress.update(p => p ? {
+        ...p,
+        status: 'Complete!',
+        finalDbSize
+      } : p);
+
       await this.loadPacksFromDb(); // Reload packs for UI update
-      this.status.set('All tags have been re-applied.');
+
+      setTimeout(() => this.taggingProgress.set(null), 5000); // Clear progress after 5s
+
     } catch (error) {
+      clearInterval(timerInterval);
+      this.taggingProgress.set(null);
       console.error('Failed to apply tags:', error);
       if (error instanceof Error) this.status.set(`Error applying tags: ${error.message}`);
     } finally {
@@ -1325,4 +1423,7 @@ export class App implements OnInit {
     });
   }
 }
+
+
+
 

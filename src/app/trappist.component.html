@@ -198,9 +198,28 @@
               } @else {
                 <div class="no-tag-selected">
                   <p>Select a tag to edit, or create a new one.</p>
-                  <button mat-flat-button color="primary" (click)="applyAllTags()" [disabled]="isLoading()">
+                  <button mat-flat-button color="primary" (click)="applyAllTags()" [disabled]="isLoading() || !!taggingProgress()">
                     <mat-icon>sync</mat-icon> Clear and Re-apply All Tags
                   </button>
+
+                  @if(taggingProgress(); as progress) {
+                    <div class="tag-progress-container">
+                      <h4>{{ progress.status }}</h4>
+                      @if(progress.status !== 'Complete!') {
+                        <mat-progress-bar mode="determinate" [value]="(progress.processedTags / progress.totalTags) * 100"></mat-progress-bar>
+                      }
+                      <div class="progress-details">
+                        @if(progress.currentTag) {
+                          <span>Tag {{ progress.processedTags }} / {{ progress.totalTags }}: <strong>{{ progress.currentTag }}</strong></span>
+                          <span>Matches: <strong>{{ progress.currentTagMatches }}</strong></span>
+                        }
+                        <span>Elapsed: <strong>{{ progress.elapsedTime }}</strong></span>
+                        @if (progress.finalDbSize && progress.initialDbSize) {
+                          <span>DB Size Change: <strong>+{{ formatBytes(progress.finalDbSize - progress.initialDbSize) }}</strong></span>
+                        }
+                      </div>
+                    </div>
+                  }
                 </div>
               }
             </div>
@@ -390,4 +409,5 @@
       }
   </div>
 }
+
 
