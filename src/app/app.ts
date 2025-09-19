@@ -17,6 +17,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatTabsModule } from '@angular/material/tabs';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
@@ -55,14 +56,16 @@ declare namespace Dexie {
         count(): Promise<number>;
         add(item: T, key?: TKey): Promise<TKey>;
         bulkAdd(items: readonly T[], keys?: TKey[]): Promise<TKey>;
+        bulkPut(items: readonly T[], keys?: TKey[]): Promise<TKey>;
         clear(): Promise<void>;
         where(index: string | string[]): WhereClause;
         put(item: T, key?: TKey): Promise<TKey>;
         update(key: TKey, changes: {[keyPath: string]: any}): Promise<number>;
+        toCollection(): Collection;
     }
     interface WhereClause {
         startsWithIgnoreCase(key: string): Collection;
-        anyOf(keys: string[]): Collection;
+        anyOf(...keys: any[]): Collection;
         equals(key: string | boolean | number): Collection;
     }
     interface Collection {
@@ -72,6 +75,7 @@ declare namespace Dexie {
         delete(): Promise<number>;
         count(): Promise<number>;
         modify(changes: (obj: any) => void): Promise<number>;
+        filter(fn: (obj: any) => boolean): Collection;
     }
 }
 
@@ -98,6 +102,7 @@ interface CardDocument {
   produced_mana?: string[]; keywords?: string[]; reprint?: boolean;
   card_faces?: CardFace[]; frame_effects?: string[];
   layout?: string;
+  tags?: string[]; // New: For tag short names
 }
 interface PersistedPack {
   name: string; size: number; cardNames: (string | null)[]; signpostCardName?: string;
@@ -117,6 +122,27 @@ interface PackHistory {
 }
 interface Pack extends PackHistory {
     cards: (CardDocument | null)[];
+}
+
+interface Tag {
+  id: string;
+  name: string;
+  short_name: string;
+  description?: string;
+  category?: string;
+  type: 'local' | 'remote';
+  // For local tags
+  query?: {
+    field: string;
+    op: 'regex' | 'lt' | 'lte' | 'eq' | 'gte' | 'gt' | 'ne';
+    value: any;
+  };
+  // For remote tags
+  scryfall_query?: string;
+  cached_card_names?: string[];
+  // Timestamps
+  created_at: number;
+  updated_at: number;
 }
 
 const DEFAULT_PACK_SLOTS = [
@@ -139,7 +165,7 @@ const DEFAULT_PACK_SLOTS = [
     MatFormFieldModule, MatInputModule, MatProgressBarModule, MatProgressSpinnerModule,
     MatToolbarModule, MatButtonToggleModule, MatAutocompleteModule, MatListModule,
     MatIconModule, MatSelectModule, ManaSymbolPipe, MatExpansionModule, MatTooltipModule,
-    MatMenuModule, MatDividerModule, DragDropModule
+    MatMenuModule, MatDividerModule, DragDropModule, MatTabsModule
   ],
   templateUrl: './trappist.component.html',
   styleUrls: ['./trappist.component.scss'],
@@ -175,6 +201,15 @@ export class App implements OnInit {
   @ViewChild('packsImporter') packsImporter!: ElementRef<HTMLInputElement>;
 
   activePack = computed(() => this.packs().find(p => p.id === this.activePackId()));
+
+  // --- Tag Management State ---
+  isTagEditorVisible = signal<boolean>(false);
+  tags = signal<Tag[]>([]);
+  selectedTag = signal<Tag | null>(null);
+  isLoadingTags = signal<boolean>(false);
+  @ViewChild('tagsImporter') tagsImporter!: ElementRef<HTMLInputElement>;
+
+  private tagMap = computed(() => new Map(this.tags().map(t => [t.short_name, t])));
 
   // --- Database Properties ---
   private db: any;
@@ -260,11 +295,14 @@ export class App implements OnInit {
       class TrappistDB extends Dexie {
         public cards!: Dexie.Table<CardDocument, string>;
         public packs!: Dexie.Table<PackHistory, string>;
+        public tags!: Dexie.Table<Tag, string>;
+
         constructor() {
           super('TrappistDB');
-          this.version(6).stores({
-            cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords',
-            packs: 'id, &name, isDeleted'
+          this.version(7).stores({
+            cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords, *tags',
+            packs: 'id, &name, isDeleted',
+            tags: 'id, &name, &short_name'
           });
         }
       }
@@ -290,6 +328,7 @@ export class App implements OnInit {
         this.dataExists.set(true);
         this.cardCount.set(count);
         await this.loadPacksFromDb();
+        await this.loadTagsFromDb();
       } else {
         this.status.set('No local card data. Ready to proceed.');
         this.dataExists.set(false);
@@ -352,6 +391,7 @@ export class App implements OnInit {
       const jsonData = await response.json();
       await this.storeDataInDb(jsonData);
       await this.loadPacksFromDb();
+      await this.loadTagsFromDb();
     } catch (error) {
       this.status.set('Failed to download or store data.');
       if (error instanceof Error) this.fileErrorDetails.set(error.message);
@@ -374,6 +414,7 @@ export class App implements OnInit {
         const jsonData = JSON.parse(text);
         await this.storeDataInDb(jsonData);
         await this.loadPacksFromDb();
+        await this.loadTagsFromDb();
       } catch (error) {
         this.status.set('Error reading or parsing file.');
         if (error instanceof Error) this.fileErrorDetails.set(error.message);
@@ -504,18 +545,38 @@ export class App implements OnInit {
     }
   }
 
+  async clearTagData() {
+    if (!confirm('Are you sure you want to delete ALL tag data? This cannot be undone.')) return;
+    this.isLoading.set(true);
+    this.status.set('Deleting tag data...');
+    try {
+        await this.db.tags.clear();
+        this.status.set('All tag data has been deleted.');
+        await this.loadTagsFromDb();
+        // Optionally re-apply (which will do nothing) to clear tags from cards
+        await this.applyAllTags();
+    } catch (error) {
+        this.status.set('Error clearing tag data.');
+        console.error('Error clearing tag data:', error);
+    } finally {
+        this.isLoading.set(false);
+    }
+  }
+
   async clearAllData() {
-    if (!confirm('Are you sure you want to delete ALL card and pack data? This cannot be undone.')) return;
+    if (!confirm('Are you sure you want to delete ALL card, pack, and tag data? This cannot be undone.')) return;
     this.isLoading.set(true);
     this.status.set('Deleting all local data...');
     try {
         await this.db.cards.clear();
         await this.db.packs.clear();
+        await this.db.tags.clear();
         this.status.set('All local data deleted. Ready to proceed.');
         this.dataExists.set(false);
         this.cardCount.set(0);
         this.selectedFile.set(null);
         this.packs.set([]);
+        this.tags.set([]);
         this.fetchBulkDataOptions();
     } catch (error) {
         this.status.set('Error clearing all data.');
@@ -706,7 +767,7 @@ export class App implements OnInit {
     const validIds = cardIds.filter((id): id is string => id !== null);
     if (validIds.length === 0) return Array(cardIds.length).fill(null);
 
-    const cardDocs = await this.db.cards.where('id').anyOf(validIds).toArray();
+    const cardDocs = await this.db.cards.where('id').anyOf(...validIds).toArray();
     const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.id, c]));
 
     return cardIds.map(id => id ? (cardMap.get(id) || null) : null);
@@ -716,7 +777,7 @@ export class App implements OnInit {
     const validNames = cardNames.filter((name): name is string => name !== null);
     if (validNames.length === 0) return Array(cardNames.length).fill(null);
 
-    const cardDocs: CardDocument[] = await this.db.cards.where('name').anyOf(validNames).toArray();
+    const cardDocs: CardDocument[] = await this.db.cards.where('name').anyOf(...validNames).toArray();
     const cardMap = new Map<string, CardDocument>(cardDocs.map(c => [c.name, c]));
 
     return cardNames.map(name => name ? (cardMap.get(name) || null) : null);
@@ -957,6 +1018,194 @@ export class App implements OnInit {
     return pack.cards.filter(card => card !== null).length;
   }
 
+  // --- Tag Management ---
+  private async loadTagsFromDb() {
+    try {
+      const allTags: Tag[] = await this.db.tags.toArray();
+      this.tags.set(allTags);
+    } catch (e) {
+      console.error('Failed to load tags from DB', e);
+      this.tags.set([]);
+    }
+  }
+
+  selectTagForEditing(tag: Tag | null) {
+    this.selectedTag.set(tag ? {...tag} : null); // Edit a copy
+  }
+
+  addNewTag() {
+    const newTag: Tag = {
+      id: crypto.randomUUID(),
+      name: 'New Tag',
+      short_name: 'NEW',
+      type: 'local',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      query: { field: 'name', op: 'regex', value: 'keyword' }
+    };
+    this.selectTagForEditing(newTag);
+  }
+
+  async saveSelectedTag() {
+    const tagToSave = this.selectedTag();
+    if (!tagToSave) return;
+
+    tagToSave.updated_at = Date.now();
+    await this.db.tags.put(tagToSave);
+    await this.loadTagsFromDb();
+    this.selectTagForEditing(null);
+  }
+
+  updateTagQuery(jsonString: string) {
+    const tag = this.selectedTag();
+    if (!tag) return;
+    try {
+      const newQuery = jsonString ? JSON.parse(jsonString) : undefined;
+      this.selectedTag.set({ ...tag, query: newQuery });
+    } catch (e) {
+      console.error('Invalid JSON for tag query:', jsonString, e);
+      // Optionally provide user feedback here
+    }
+  }
+
+  async deleteTag(tagId: string) {
+    if (!confirm('Are you sure you want to delete this tag? This cannot be undone.')) return;
+    await this.db.tags.delete(tagId);
+    await this.loadTagsFromDb();
+    if(this.selectedTag()?.id === tagId) {
+        this.selectTagForEditing(null);
+    }
+  }
+
+  async cacheRemoteTag(tagId: string) {
+    const tag = this.tags().find(t => t.id === tagId);
+    if (!tag || tag.type !== 'remote' || !tag.scryfall_query) return;
+
+    this.isLoadingTags.set(true);
+    this.status.set(`Caching cards for tag "${tag.name}"...`);
+    let allCardNames: string[] = [];
+    let next_page_url: string | null = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(tag.scryfall_query)}`;
+
+    try {
+      while (next_page_url) {
+        const response = await fetch(next_page_url);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Scryfall API error: ${errorData.details || response.statusText}`);
+        }
+        const pageData = await response.json();
+        const names = pageData.data.map((card: any) => card.name);
+        allCardNames.push(...names);
+        next_page_url = pageData.has_more ? pageData.next_page : null;
+        if (next_page_url) await new Promise(resolve => setTimeout(resolve, 100)); // Be nice to API
+      }
+
+      const updatedTag: Tag = { ...tag, cached_card_names: allCardNames, updated_at: Date.now() };
+      await this.db.tags.put(updatedTag);
+      await this.loadTagsFromDb();
+      this.status.set(`Cached ${allCardNames.length} cards for tag "${tag.name}".`);
+    } catch (error) {
+      console.error('Failed to cache remote tag:', error);
+      if (error instanceof Error) this.status.set(`Error caching tag: ${error.message}`);
+      else this.status.set('An unknown error occurred while caching tag.');
+    } finally {
+      this.isLoadingTags.set(false);
+    }
+  }
+
+  async applyAllTags() {
+    if (!confirm('This will clear all existing tags from cards and re-apply them based on current tag definitions. This may take a moment. Continue?')) return;
+
+    this.isLoading.set(true);
+    this.status.set('Applying tags...');
+    try {
+      const allCards: CardDocument[] = await this.db.cards.toArray();
+      const allTags: Tag[] = await this.db.tags.toArray();
+
+      allCards.forEach(card => card.tags = []);
+
+      for (const tag of allTags) {
+        if (tag.type === 'local' && tag.query && tag.query.field) {
+          const { field, op, value } = tag.query;
+          const regex = op === 'regex' ? new RegExp(value, 'i') : null;
+
+          for (const card of allCards) {
+            let match = false;
+            const cardValue = (card as any)[field];
+            if (cardValue === undefined) continue;
+
+            if (regex && typeof cardValue === 'string') {
+              if (regex.test(cardValue)) match = true;
+            } else if (typeof cardValue === 'number') {
+              switch (op) {
+                case 'lt': if (cardValue < value) match = true; break;
+                case 'lte': if (cardValue <= value) match = true; break;
+                case 'eq': if (cardValue === value) match = true; break;
+                case 'gte': if (cardValue >= value) match = true; break;
+                case 'gt': if (cardValue > value) match = true; break;
+                case 'ne': if (cardValue !== value) match = true; break;
+              }
+            }
+            if (match) card.tags!.push(tag.short_name);
+          }
+        } else if (tag.type === 'remote' && tag.cached_card_names) {
+          const nameSet = new Set(tag.cached_card_names);
+          for (const card of allCards) {
+            if (nameSet.has(card.name)) {
+              card.tags!.push(tag.short_name);
+            }
+          }
+        }
+      }
+
+      allCards.forEach(card => {
+        if (card.tags) card.tags = [...new Set(card.tags)];
+      });
+
+      this.status.set('Saving tag updates to database...');
+      await this.db.cards.bulkPut(allCards);
+      await this.loadPacksFromDb(); // Reload packs for UI update
+      this.status.set('All tags have been re-applied.');
+    } catch (error) {
+      console.error('Failed to apply tags:', error);
+      if (error instanceof Error) this.status.set(`Error applying tags: ${error.message}`);
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  exportTags() {
+    const dataStr = JSON.stringify(this.tags(), null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', 'trappist_tags.json');
+    linkElement.click();
+  }
+
+  triggerTagsImport() { this.tagsImporter.nativeElement.click(); }
+
+  importTags(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = async (e: ProgressEvent<FileReader>) => {
+      try {
+        const importedTags: Tag[] = JSON.parse(e.target?.result as string);
+        await this.db.tags.bulkPut(importedTags);
+        await this.loadTagsFromDb();
+        alert(`Successfully imported ${importedTags.length} tags.`);
+      } catch (error) {
+        if (error instanceof Error) alert(`Import failed: ${error.message}`);
+        console.error(error);
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+
   // --- UI Helpers ---
   setActiveSlot(index: number) {
     this.activeSlotIndex.set(index);
@@ -1024,6 +1273,15 @@ export class App implements OnInit {
     return `{ci-${sortedIdentity.toLowerCase()}}`;
   }
 
+  public getTagTooltip(shortName: string): string {
+    const tag = this.tagMap().get(shortName);
+    if (!tag) return shortName;
+    let tooltip = `${tag.name}`;
+    if (tag.category) tooltip += `\nCategory: ${tag.category}`;
+    if (tag.description) tooltip += `\n${tag.description}`;
+    return tooltip;
+  }
+
   public formatTimestamp(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
   }
@@ -1067,3 +1325,4 @@ export class App implements OnInit {
     });
   }
 }
+

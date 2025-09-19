@@ -98,11 +98,14 @@
                 <mat-icon>delete</mat-icon> Delete Active Pack
               </button>
            }
+          <button mat-stroked-button (click)="isTagEditorVisible.set(!isTagEditorVisible())" [class.active-toggle]="isTagEditorVisible()">
+            <mat-icon>label</mat-icon> Tag Editor
+          </button>
           <button mat-stroked-button color="warn" [matMenuTriggerFor]="clearMenu"
                   (mouseenter)="updateDbSize()"
                   [matTooltip]="dbSize() ? 'Local Data Size: ' + dbSize() : 'View options to clear local data'"
                   matTooltipPosition="above">
-            <mat-icon>delete_forever</mat-icon> Clear All Data
+            <mat-icon>delete_forever</mat-icon> Clear Data
           </button>
           <mat-menu #clearMenu="matMenu">
             <button mat-menu-item (click)="clearCardData()">
@@ -113,6 +116,10 @@
               <mat-icon>inventory_2</mat-icon>
               <span>Clear Pack Data</span>
             </button>
+            <button mat-menu-item (click)="clearTagData()">
+              <mat-icon>label_off</mat-icon>
+              <span>Clear Tag Data</span>
+            </button>
             <mat-divider></mat-divider>
             <button mat-menu-item (click)="clearAllData()">
               <mat-icon color="warn">warning</mat-icon>
@@ -121,6 +128,85 @@
           </mat-menu>
         </mat-card-content>
       </mat-card>
+
+      <!-- TAG EDITOR -->
+      @if(isTagEditorVisible()) {
+        <mat-card class="content-card tag-editor">
+          <mat-card-header>
+              <mat-card-title>Tag Editor</mat-card-title>
+          </mat-card-header>
+          <mat-card-content class="tag-editor-content">
+            <div class="tag-list-container">
+              <div class="tag-list-actions">
+                  <button mat-stroked-button (click)="addNewTag()"><mat-icon>add</mat-icon> New Tag</button>
+                  <button mat-stroked-button (click)="exportTags()"><mat-icon>download</mat-icon> Export</button>
+                  <button mat-stroked-button (click)="triggerTagsImport()"><mat-icon>upload</mat-icon> Import</button>
+                  <input type="file" class="hidden-file-input" #tagsImporter accept=".json" (change)="importTags($event)">
+              </div>
+              <mat-list>
+                @for(tag of tags(); track tag.id) {
+                  <mat-list-item (click)="selectTagForEditing(tag)" [class.selected]="selectedTag()?.id === tag.id">
+                      <mat-icon matListItemIcon>label</mat-icon>
+                      <div matListItemTitle>{{ tag.name }}</div>
+                      <div matListItemLine>{{ tag.short_name }} | {{tag.type}}</div>
+                  </mat-list-item>
+                }
+              </mat-list>
+            </div>
+            <div class="tag-details-container">
+              @if (selectedTag(); as tag) {
+                <div class="tag-form">
+                    <mat-form-field><mat-label>Name</mat-label><input matInput [(ngModel)]="tag.name"></mat-form-field>
+                    <mat-form-field><mat-label>Short Name</mat-label><input matInput [(ngModel)]="tag.short_name"></mat-form-field>
+                    <mat-form-field><mat-label>Category</mat-label><input matInput [(ngModel)]="tag.category"></mat-form-field>
+                    <mat-form-field><mat-label>Description</mat-label><textarea matInput [(ngModel)]="tag.description"></textarea></mat-form-field>
+                    <mat-form-field><mat-label>Tag Type</mat-label>
+                      <mat-select [(ngModel)]="tag.type">
+                        <mat-option value="local">Local</mat-option>
+                        <mat-option value="remote">Remote (Scryfall)</mat-option>
+                      </mat-select>
+                    </mat-form-field>
+
+                    @if(tag.type === 'local') {
+                      <div class="local-query-builder">
+                        <h4>Local Query</h4>
+                        <!-- Simple JSON editor for now -->
+                        <mat-form-field>
+                          <mat-label>Query JSON</mat-label>
+                          <textarea matInput cdkTextareaAutosize #autosize="cdkTextareaAutosize" [ngModel]="tag.query | json" (ngModelChange)="updateTagQuery($event)" placeholder='{ "field": "cmc", "op": "lte", "value": 2 }'></textarea>
+                        </mat-form-field>
+                      </div>
+                    }
+
+                    @if(tag.type === 'remote') {
+                      <div class="remote-query-builder">
+                        <h4>Remote Scryfall Query</h4>
+                        <mat-form-field><mat-label>Scryfall Query</mat-label><input matInput [(ngModel)]="tag.scryfall_query"></mat-form-field>
+                        <button mat-stroked-button (click)="cacheRemoteTag(tag.id)" [disabled]="isLoadingTags()">
+                           <mat-icon>cloud_sync</mat-icon> Cache Card Names
+                        </button>
+                        <span>Cached Names: {{ tag.cached_card_names?.length || 0 }}</span>
+                      </div>
+                    }
+
+                    <div class="tag-form-actions">
+                      <button mat-stroked-button (click)="selectTagForEditing(null)">Cancel</button>
+                      <button mat-raised-button color="primary" (click)="saveSelectedTag()">Save Tag</button>
+                      <button mat-stroked-button color="warn" (click)="deleteTag(tag.id)">Delete</button>
+                    </div>
+                </div>
+              } @else {
+                <div class="no-tag-selected">
+                  <p>Select a tag to edit, or create a new one.</p>
+                  <button mat-flat-button color="primary" (click)="applyAllTags()" [disabled]="isLoading()">
+                    <mat-icon>sync</mat-icon> Clear and Re-apply All Tags
+                  </button>
+                </div>
+              }
+            </div>
+          </mat-card-content>
+        </mat-card>
+      }
 
       <div class="packs-container">
         @if (activePack(); as pack) {
@@ -195,6 +281,11 @@
                                 </div>
                                 @if(pack.cards[slotIndex]; as card) {
                                     <!-- Filled Slot -->
+                                    <div class="tags-cell">
+                                      @for(tagShortName of card.tags; track tagShortName) {
+                                          <span class="card-tag" [matTooltip]="getTagTooltip(tagShortName)">{{ tagShortName }}</span>
+                                      }
+                                    </div>
                                     <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
                                         <span [innerHTML]="getDisplayManaCost(card) | manaSymbol"></span>
                                     </div>
@@ -214,6 +305,7 @@
                                     </div>
                                 } @else {
                                     <!-- Empty Slot -->
+                                    <div class="tags-cell empty"></div>
                                     <div class="mana-cost-cell empty"></div>
                                     <div class="card-cell empty">
                                         <mat-form-field class="slot-search-field">
@@ -298,3 +390,4 @@
       }
   </div>
 }
+
