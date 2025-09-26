@@ -1110,8 +1110,12 @@ export class App implements OnInit {
           throw new Error(`Scryfall API error: ${errorData.details || response.statusText}`);
         }
         const pageData = await response.json();
-        const names = pageData.data.map((card: any) => card.name);
-        allCardNames.push(...names);
+        const cardData = pageData.data || [];
+        cardData.forEach((card: any) => {
+          if (card && typeof card.name === 'string') {
+            allCardNames.push(card.name);
+          }
+        });
         this.status.set(`Caching... Fetched ${allCardNames.length} card names for "${tag.name}"...`);
 
         // Update the signal for immediate feedback in the UI
@@ -1165,86 +1169,76 @@ export class App implements OnInit {
         });
       }, 100);
 
-      // 1. Clear all existing tags
-      this.taggingProgress.update(p => p ? { ...p, status: 'Clearing existing tags from all cards...' } : p);
-      allCards.forEach((card: CardDocument) => card.tags = []);
+      this.taggingProgress.update(p => p ? { ...p, status: 'Applying tags...' } : p);
       await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI update
 
-      // 2. Apply each tag
-      let processedTags = 0;
-      for (const tag of allTags) {
-        processedTags++;
-        let currentTagMatches = 0;
-        this.taggingProgress.update(p => p ? {
-          ...p,
-          status: 'Applying tags...',
-          processedTags,
-          currentTag: tag.name,
-          currentTagMatches: 0
-        } : p);
-        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI to render progress
+      // Pre-process tags for efficient lookup
+      const localTags = allTags.filter(t => t.type === 'local' && t.query && t.query.field);
+      const remoteTagLookups = allTags
+        .filter(t => t.type === 'remote' && t.cached_card_names)
+        .map(tag => ({
+          short_name: tag.short_name,
+          nameSet: new Set(tag.cached_card_names)
+        }));
 
-        if (tag.type === 'local' && tag.query && tag.query.field) {
-          const { field, op, value } = tag.query;
-          const regex = (op === 'regex' && typeof value === 'string') ? new RegExp(value, 'i') : null;
+      // 1. Iterate through each card and build its tag list from scratch
+      for (const card of allCards) {
+          const newTags = new Set<string>();
 
-          for (const card of allCards) {
-            let match = false;
-            const cardValue = (card as any)[field];
-            if (cardValue === undefined || cardValue === null) continue;
+          // A. Apply local tags based on queries
+          for (const tag of localTags) {
+              let match = false;
+              const { field, op, value } = tag.query!;
+              const regex = (op === 'regex' && typeof value === 'string') ? new RegExp(value, 'i') : null;
+              const cardValue = (card as any)[field];
 
-            if (Array.isArray(cardValue)) {
-              if (regex) {
-                if (cardValue.some(item => typeof item === 'string' && regex.test(item))) match = true;
-              } else if (op === 'eq') {
-                if (cardValue.some(item => String(item).toLowerCase() === String(value).toLowerCase())) match = true;
-              }
-            }
-            else if (typeof cardValue === 'string') {
-              if (regex) {
-                if (regex.test(cardValue)) match = true;
-              } else if (op === 'eq') {
-                if (cardValue.toLowerCase() === String(value).toLowerCase()) match = true;
-              }
-            }
-            else if (typeof cardValue === 'number' && (typeof value === 'number' || typeof value === 'string')) {
-              const numValue = Number(value);
-              if (!isNaN(numValue)) {
-                  switch (op) {
-                    case 'lt': if (cardValue < numValue) match = true; break;
-                    case 'lte': if (cardValue <= numValue) match = true; break;
-                    case 'eq': if (cardValue === numValue) match = true; break;
-                    case 'gte': if (cardValue >= numValue) match = true; break;
-                    case 'gt': if (cardValue > numValue) match = true; break;
-                    case 'ne': if (cardValue !== numValue) match = true; break;
+              if (cardValue !== undefined && cardValue !== null) {
+                if (Array.isArray(cardValue)) {
+                  if (regex) {
+                    if (cardValue.some(item => typeof item === 'string' && regex.test(item))) match = true;
+                  } else if (op === 'eq') {
+                    if (cardValue.some(item => String(item).toLowerCase() === String(value).toLowerCase())) match = true;
                   }
+                } else if (typeof cardValue === 'string') {
+                  if (regex) {
+                    if (regex.test(cardValue)) match = true;
+                  } else if (op === 'eq') {
+                    if (cardValue.toLowerCase() === String(value).toLowerCase()) match = true;
+                  }
+                } else if (typeof cardValue === 'number' && (typeof value === 'number' || typeof value === 'string')) {
+                  const numValue = Number(value);
+                  if (!isNaN(numValue)) {
+                      switch (op) {
+                        case 'lt': if (cardValue < numValue) match = true; break;
+                        case 'lte': if (cardValue <= numValue) match = true; break;
+                        case 'eq': if (cardValue === numValue) match = true; break;
+                        case 'gte': if (cardValue >= numValue) match = true; break;
+                        case 'gt': if (cardValue > numValue) match = true; break;
+                        case 'ne': if (cardValue !== numValue) match = true; break;
+                      }
+                  }
+                }
               }
-            }
 
-            if (match) {
-              if (!card.tags) card.tags = [];
-              card.tags.push(tag.short_name);
-              currentTagMatches++;
-            }
+              if (match) {
+                  newTags.add(tag.short_name);
+              }
           }
-        } else if (tag.type === 'remote' && tag.cached_card_names) {
-          const nameSet = new Set(tag.cached_card_names);
-          for (const card of allCards) {
-            if (nameSet.has(card.name)) {
-              if (!card.tags) card.tags = [];
-              card.tags!.push(tag.short_name);
-              currentTagMatches++;
-            }
+
+          // B. Apply remote tags based on cached names
+          for (const { short_name, nameSet } of remoteTagLookups) {
+              if (nameSet.has(card.name)) {
+                  newTags.add(short_name);
+              }
           }
-        }
-        this.taggingProgress.update(p => p ? { ...p, currentTagMatches } : p);
+
+          card.tags = Array.from(newTags);
       }
 
-      // 3. Finalize and save
-      allCards.forEach((card: CardDocument) => {
-        if (card.tags) card.tags = [...new Set(card.tags)];
-      });
+      this.taggingProgress.update(p => p ? { ...p, status: 'Finalizing and saving updates...' } : p);
+      await new Promise(resolve => setTimeout(resolve, 0));
 
+      // 2. Save all updated cards back to the database
       this.taggingProgress.update(p => p ? { ...p, status: 'Saving tag updates to database...' } : p);
       await this.db.cards.bulkPut(allCards);
 
@@ -1409,7 +1403,7 @@ export class App implements OnInit {
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
