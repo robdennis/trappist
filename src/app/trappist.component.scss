@@ -324,15 +324,15 @@
 }
 
 .card-tag {
-  background-color: #e0e0e0;
-  color: #333;
-  padding: 2px 5px;
-  border-radius: 4px;
-  font-size: 0.75em;
-  font-weight: 500;
-  cursor: default;
-  white-space: nowrap;
+  font-size: 1.2em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
 }
+
 
 .mana-cost-cell {
     justify-content: center;
@@ -539,3 +539,81 @@
   }
 }
 
+.icon-picker-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0;
+  .icon-label { font-size: 0.9em; color: #666; }
+  .selected-icon-display {
+    font-size: 1.5em;
+    width: 28px;
+    text-align: center;
+    margin-right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.tag-icon-display {
+  font-size: 1.5em;
+  width: 24px;
+  text-align: center;
+}
+
+// --- Icon Picker ---
+.icon-picker-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1002;
+}
+
+.icon-picker-dialog {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 11px 15px -7px rgba(0,0,0,.2), 0 24px 38px 3px rgba(0,0,0,.14), 0 9px 46px 8px rgba(0,0,0,.12);
+}
+
+.icon-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e0e0e0;
+  h3 { margin: 0; }
+  .icon-search-field { flex-grow: 1; margin: 0 24px; }
+}
+
+.icon-picker-content {
+  overflow-y: auto;
+  h4 {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 8px;
+    button {
+      width: 48px;
+      height: 48px;
+      font-size: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+}

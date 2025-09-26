@@ -146,9 +146,9 @@
               <mat-list>
                 @for(tag of tags(); track tag.id) {
                   <mat-list-item (click)="selectTagForEditing(tag)" [class.selected]="selectedTag()?.id === tag.id">
-                      <mat-icon matListItemIcon>label</mat-icon>
+                      <div matListItemIcon class="tag-icon-display" [innerHTML]="getIconHtml(tag.icon)"></div>
                       <div matListItemTitle>{{ tag.name }}</div>
-                      <div matListItemLine>{{ tag.short_name }} | {{tag.type}}</div>
+                      <div matListItemLine>{{tag.type}}</div>
                   </mat-list-item>
                 }
               </mat-list>
@@ -157,7 +157,15 @@
               @if (selectedTag(); as tag) {
                 <div class="tag-form">
                     <mat-form-field><mat-label>Name</mat-label><input matInput [(ngModel)]="tag.name"></mat-form-field>
-                    <mat-form-field><mat-label>Short Name</mat-label><input matInput [(ngModel)]="tag.short_name"></mat-form-field>
+
+                    <div class="icon-picker-field">
+                      <span class="icon-label">Icon:</span>
+                      <button mat-stroked-button (click)="openIconPicker()">
+                        <span class="selected-icon-display" [innerHTML]="getIconHtml(tag.icon)"></span>
+                         Choose Icon
+                      </button>
+                    </div>
+
                     <mat-form-field><mat-label>Category</mat-label><input matInput [(ngModel)]="tag.category"></mat-form-field>
                     <mat-form-field><mat-label>Description</mat-label><textarea matInput [(ngModel)]="tag.description"></textarea></mat-form-field>
                     <mat-form-field><mat-label>Tag Type</mat-label>
@@ -301,8 +309,8 @@
                                 @if(pack.cards[slotIndex]; as card) {
                                     <!-- Filled Slot -->
                                     <div class="tags-cell">
-                                      @for(tagShortName of card.tags; track tagShortName) {
-                                          <span class="card-tag" [matTooltip]="getTagTooltip(tagShortName)">{{ tagShortName }}</span>
+                                      @for(tagIcon of card.tags; track tagIcon) {
+                                          <span class="card-tag" [matTooltip]="getTagTooltip(tagIcon)" [innerHTML]="getIconHtml(tagIcon)"></span>
                                       }
                                     </div>
                                     <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
@@ -410,4 +418,35 @@
   </div>
 }
 
+@if (isIconPickerVisible()) {
+  <div class="icon-picker-overlay" (click)="closeIconPicker()">
+    <div class="icon-picker-dialog" (click)="$event.stopPropagation()">
+      <div class="icon-picker-header">
+        <h3>Select an Icon</h3>
+        <mat-form-field appearance="outline" class="icon-search-field">
+          <mat-label>Search Icons</mat-label>
+          <input matInput [ngModel]="iconSearchTerm()" (ngModelChange)="iconSearchTerm.set($event)">
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+        <button mat-icon-button (click)="closeIconPicker()">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+      <div class="icon-picker-content">
+        @for (category of objectKeys(filteredIcons()); track category) {
+          <div class="icon-category">
+            <h4>{{ category }}</h4>
+            <div class="icon-grid">
+              @for (icon of filteredIcons()[category].icons; track icon) {
+                <button mat-icon-button (click)="selectIcon(icon)" [matTooltip]="icon">
+                  <span [innerHTML]="getIconHtml(icon)"></span>
+                </button>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}
 

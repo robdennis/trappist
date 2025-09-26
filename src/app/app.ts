@@ -127,7 +127,7 @@ interface Pack extends PackHistory {
 interface Tag {
   id: string;
   name: string;
-  short_name: string;
+  icon: string; // Changed from short_name
   description?: string;
   category?: string;
   type: 'local' | 'remote';
@@ -220,13 +220,52 @@ export class App implements OnInit {
   isLoadingTags = signal<boolean>(false);
   taggingProgress = signal<TaggingProgress | null>(null);
   @ViewChild('tagsImporter') tagsImporter!: ElementRef<HTMLInputElement>;
+  isIconPickerVisible = signal(false);
+  iconSearchTerm = signal('');
 
-  private tagMap = computed(() => new Map(this.tags().map(t => [t.short_name, t])));
+  private tagMap = computed(() => new Map(this.tags().map(t => [t.icon, t])));
 
   // --- Database Properties ---
   private db: any;
+  private sanitizer: DomSanitizer;
+
+  // --- Icon Picker Properties ---
+  readonly iconCategories: { [key: string]: { prefix: string; icons: string[] } } = {
+    'Font Awesome': {
+      prefix: 'fa-',
+      icons: ['fa-solid fa-star', 'fa-solid fa-heart', 'fa-solid fa-bolt', 'fa-solid fa-leaf', 'fa-solid fa-fire', 'fa-solid fa-water', 'fa-solid fa-wind', 'fa-solid fa-mountain', 'fa-solid fa-sun', 'fa-solid fa-moon', 'fa-solid fa-snowflake', 'fa-solid fa-skull', 'fa-solid fa-crown', 'fa-solid fa-shield-halved', 'fa-solid fa-hat-wizard', 'fa-solid fa-dungeon', 'fa-solid fa-scroll', 'fa-solid fa-book', 'fa-solid fa-potion', 'fa-solid fa-ring', 'fa-solid fa-gem', 'fa-solid fa-hammer', 'fa-solid fa-axe', 'fa-solid fa-sword', 'fa-solid fa-bow-arrow', 'fa-solid fa-wand-magic-sparkles', 'fa-solid fa-hand-fist', 'fa-solid fa-dragon', 'fa-solid fa-spider', 'fa-solid fa-ghost', 'fa-solid fa-bug']
+    },
+    'Mana': {
+      prefix: 'ms-',
+      icons: ['ms-w', 'ms-u', 'ms-b', 'ms-r', 'ms-g', 'ms-c', 'ms-x', 'ms-0', 'ms-1', 'ms-2', 'ms-3', 'ms-4', 'ms-5', 'ms-6', 'ms-7', 'ms-8', 'ms-9', 'ms-10', 'ms-11', 'ms-12', 'ms-13', 'ms-14', 'ms-15', 'ms-16', 'ms-17', 'ms-18', 'ms-19', 'ms-20', 'ms-phyrexian', 'ms-wu', 'ms-ub', 'ms-br', 'ms-rg', 'ms-gw', 'ms-wb', 'ms-ur', 'ms-bg', 'ms-rw', 'ms-gu', 'ms-2w', 'ms-2u', 'ms-2b', 'ms-2r', 'ms-2g', 'ms-wp', 'ms-up', 'ms-bp', 'ms-rp', 'ms-gp', 'ms-s', 'ms-e', 'ms-t', 'ms-q', 'ms-tap', 'ms-untap', 'ms-chaos', 'ms-loyalty-up', 'ms-loyalty-down', 'ms-loyalty-zero', 'ms-loyalty-start', 'ms-dfc-day', 'ms-dfc-night', 'ms-dfc-spark', 'ms-dfc-ignite', 'ms-dfc-emrakul', 'ms-dfc-moon', 'ms-dfc-enchantment']
+    },
+    'Emojis': {
+      prefix: 'emoji-',
+      icons: ['👍', '👎', '🔥', '💀', '🎉', '💧', '☀️', '⭐', '❤️', '💯', '💰', '👑', '💣', '✅', '❌']
+    }
+  };
+  objectKeys = Object.keys;
+
+  filteredIcons = computed(() => {
+    const term = this.iconSearchTerm().toLowerCase().replace(/[-_\s]/g, '');
+    if (!term) {
+      return this.iconCategories;
+    }
+    const filtered: { [key: string]: { prefix: string; icons: string[] } } = {};
+    for (const category in this.iconCategories) {
+      const catData = this.iconCategories[category as keyof typeof this.iconCategories];
+      const matchingIcons = catData.icons.filter(icon =>
+        icon.toLowerCase().replace(/[-_\s]/g, '').includes(term)
+      );
+      if (matchingIcons.length > 0) {
+        filtered[category] = { ...catData, icons: matchingIcons };
+      }
+    }
+    return filtered;
+  });
 
   constructor() {
+    this.sanitizer = inject(DomSanitizer);
     effect(() => {
       const pack = this.activePack();
       this.setupSlotControls(pack);
@@ -311,10 +350,10 @@ export class App implements OnInit {
 
         constructor() {
           super('TrappistDB');
-          this.version(7).stores({
+          this.version(8).stores({
             cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords, *tags',
             packs: 'id, &name, isDeleted',
-            tags: 'id, &name, &short_name'
+            tags: 'id, &name, &icon'
           });
         }
       }
@@ -1049,7 +1088,7 @@ export class App implements OnInit {
     const newTag: Tag = {
       id: crypto.randomUUID(),
       name: 'New Tag',
-      short_name: 'NEW',
+      icon: 'fa-solid fa-star',
       type: 'local',
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -1177,7 +1216,7 @@ export class App implements OnInit {
       const remoteTagLookups = allTags
         .filter(t => t.type === 'remote' && t.cached_card_names)
         .map(tag => ({
-          short_name: tag.short_name,
+          icon: tag.icon,
           nameSet: new Set(tag.cached_card_names)
         }));
 
@@ -1221,14 +1260,14 @@ export class App implements OnInit {
               }
 
               if (match) {
-                  newTags.add(tag.short_name);
+                  newTags.add(tag.icon);
               }
           }
 
           // B. Apply remote tags based on cached names
-          for (const { short_name, nameSet } of remoteTagLookups) {
+          for (const { icon, nameSet } of remoteTagLookups) {
               if (nameSet.has(card.name)) {
-                  newTags.add(short_name);
+                  newTags.add(icon);
               }
           }
 
@@ -1365,9 +1404,9 @@ export class App implements OnInit {
     return `{ci-${sortedIdentity.toLowerCase()}}`;
   }
 
-  public getTagTooltip(shortName: string): string {
-    const tag = this.tagMap().get(shortName);
-    if (!tag) return shortName;
+  public getTagTooltip(icon: string): string {
+    const tag = this.tagMap().get(icon);
+    if (!tag) return icon;
     let tooltip = `${tag.name}`;
     if (tag.category) tooltip += `\nCategory: ${tag.category}`;
     if (tag.description) tooltip += `\n${tag.description}`;
@@ -1404,7 +1443,8 @@ export class App implements OnInit {
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    const value = parseFloat((bytes / Math.pow(k, i)).toFixed(dm));
+    return `${value} ${sizes[i]}`;
   }
 
   public formatLastUpdated(dateString: string): string {
@@ -1416,8 +1456,38 @@ export class App implements OnInit {
       minute: '2-digit'
     });
   }
+
+  // --- Icon Picker Methods ---
+  openIconPicker() {
+    this.isIconPickerVisible.set(true);
+  }
+
+  closeIconPicker() {
+    this.isIconPickerVisible.set(false);
+    this.iconSearchTerm.set('');
+  }
+
+  selectIcon(icon: string) {
+    this.selectedTag.update(tag => {
+      if (tag) {
+        tag.icon = icon;
+      }
+      return tag;
+    });
+    this.closeIconPicker();
+  }
+
+  getIconHtml(icon: string | undefined): SafeHtml {
+    if (!icon) {
+      return this.sanitizer.bypassSecurityTrustHtml('<span></span>');
+    }
+    if (icon.startsWith('fa-')) {
+      return this.sanitizer.bypassSecurityTrustHtml(`<i class="${icon}"></i>`);
+    }
+    if (icon.startsWith('ms-')) {
+      return this.sanitizer.bypassSecurityTrustHtml(`<i class="ms ${icon}"></i>`);
+    }
+    return this.sanitizer.bypassSecurityTrustHtml(`<span>${icon}</span>`);
+  }
 }
-
-
-
 
