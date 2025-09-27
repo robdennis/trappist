@@ -324,15 +324,24 @@
 }
 
 .card-tag {
-  font-size: 1.2em;
-  line-height: 1;
+  background-color: #e0e0e0;
+  color: #333;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 500;
+  cursor: default;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-}
+  gap: 4px;
 
+  .ms, .fa-solid, .fa-brands {
+    font-size: 1.2em;
+    line-height: 1;
+  }
+}
 
 .mana-cost-cell {
     justify-content: center;
@@ -604,16 +613,31 @@
     font-weight: 500;
   }
   .icon-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
-    gap: 8px;
-    button {
-      width: 48px;
-      height: 48px;
-      font-size: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  }
+  button {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    span {
       display: inline-flex;
-      align-items: center;
       justify-content: center;
+      align-items: center;
+    }
+
+    .ms, .fa-solid, .fa-brands {
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    span > span { // For Emojis
+        font-size: 24px;
     }
   }
 }
+

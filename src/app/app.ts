@@ -235,9 +235,17 @@ export class App implements OnInit {
       prefix: 'fa-',
       icons: ['fa-solid fa-star', 'fa-solid fa-heart', 'fa-solid fa-bolt', 'fa-solid fa-leaf', 'fa-solid fa-fire', 'fa-solid fa-water', 'fa-solid fa-wind', 'fa-solid fa-mountain', 'fa-solid fa-sun', 'fa-solid fa-moon', 'fa-solid fa-snowflake', 'fa-solid fa-skull', 'fa-solid fa-crown', 'fa-solid fa-shield-halved', 'fa-solid fa-hat-wizard', 'fa-solid fa-dungeon', 'fa-solid fa-scroll', 'fa-solid fa-book', 'fa-solid fa-potion', 'fa-solid fa-ring', 'fa-solid fa-gem', 'fa-solid fa-hammer', 'fa-solid fa-axe', 'fa-solid fa-sword', 'fa-solid fa-bow-arrow', 'fa-solid fa-wand-magic-sparkles', 'fa-solid fa-hand-fist', 'fa-solid fa-dragon', 'fa-solid fa-spider', 'fa-solid fa-ghost', 'fa-solid fa-bug']
     },
-    'Mana': {
+    'Mana - Mana & Resource Symbols': {
       prefix: 'ms-',
-      icons: ['ms-w', 'ms-u', 'ms-b', 'ms-r', 'ms-g', 'ms-c', 'ms-x', 'ms-0', 'ms-1', 'ms-2', 'ms-3', 'ms-4', 'ms-5', 'ms-6', 'ms-7', 'ms-8', 'ms-9', 'ms-10', 'ms-11', 'ms-12', 'ms-13', 'ms-14', 'ms-15', 'ms-16', 'ms-17', 'ms-18', 'ms-19', 'ms-20', 'ms-phyrexian', 'ms-wu', 'ms-ub', 'ms-br', 'ms-rg', 'ms-gw', 'ms-wb', 'ms-ur', 'ms-bg', 'ms-rw', 'ms-gu', 'ms-2w', 'ms-2u', 'ms-2b', 'ms-2r', 'ms-2g', 'ms-wp', 'ms-up', 'ms-bp', 'ms-rp', 'ms-gp', 'ms-s', 'ms-e', 'ms-t', 'ms-q', 'ms-tap', 'ms-untap', 'ms-chaos', 'ms-loyalty-up', 'ms-loyalty-down', 'ms-loyalty-zero', 'ms-loyalty-start', 'ms-dfc-day', 'ms-dfc-night', 'ms-dfc-spark', 'ms-dfc-ignite', 'ms-dfc-emrakul', 'ms-dfc-moon', 'ms-dfc-enchantment']
+      icons: ['ms-d', 'ms-e', 'ms-h', 'ms-l', 'ms-paw', 'ms-s']
+    },
+    'Mana - Card Symbols': {
+      prefix: 'ms-',
+      icons: ['ms-acorn', 'ms-artist-brush', 'ms-artist-nib', 'ms-chaos']
+    },
+    'Mana - Loyalty Symbols': {
+      prefix: 'ms-',
+      icons: ['ms-loyalty-up', 'ms-loyalty-down', 'ms-loyalty-zero', 'ms-loyalty-start', 'ms-defense', 'ms-defense-outline']
     },
     'Emojis': {
       prefix: 'emoji-',
@@ -1490,4 +1498,3 @@ export class App implements OnInit {
     return this.sanitizer.bypassSecurityTrustHtml(`<span>${icon}</span>`);
   }
 }
-
