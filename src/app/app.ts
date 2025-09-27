@@ -102,7 +102,7 @@ interface CardDocument {
   produced_mana?: string[]; keywords?: string[]; reprint?: boolean;
   card_faces?: CardFace[]; frame_effects?: string[];
   layout?: string;
-  tags?: string[]; // New: For tag short names
+  tags?: string[]; // New: For tag IDs
 }
 interface PersistedPack {
   name: string; size: number; cardNames: (string | null)[]; signpostCardName?: string;
@@ -127,7 +127,7 @@ interface Pack extends PackHistory {
 interface Tag {
   id: string;
   name: string;
-  icon: string; // Changed from short_name
+  icon: string;
   description?: string;
   category?: string;
   type: 'local' | 'remote';
@@ -154,6 +154,15 @@ interface TaggingProgress {
   elapsedTime: string;
   initialDbSize?: number;
   finalDbSize?: number;
+}
+
+interface ScryfallSet {
+  id: string;
+  code: string;
+  name: string;
+  set_type: string;
+  icon_svg_uri: string;
+  card_count: number;
 }
 
 const DEFAULT_PACK_SLOTS = [
@@ -222,15 +231,15 @@ export class App implements OnInit {
   @ViewChild('tagsImporter') tagsImporter!: ElementRef<HTMLInputElement>;
   isIconPickerVisible = signal(false);
   iconSearchTerm = signal('');
+  mtgSetIcons = signal<{ [key: string]: { prefix: string; icons: string[], names: string[] } }>({});
 
-  private tagMap = computed(() => new Map(this.tags().map(t => [t.icon, t])));
+  tagIdMap = computed(() => new Map(this.tags().map(t => [t.id, t])));
 
   // --- Database Properties ---
   private db: any;
-  private sanitizer: DomSanitizer;
 
   // --- Icon Picker Properties ---
-  readonly iconCategories: { [key: string]: { prefix: string; icons: string[] } } = {
+  readonly iconCategories: { [key: string]: { prefix: string; icons: string[], names?: string[] } } = {
     'Font Awesome': {
       prefix: 'fa-',
       icons: ['fa-solid fa-star', 'fa-solid fa-heart', 'fa-solid fa-bolt', 'fa-solid fa-leaf', 'fa-solid fa-fire', 'fa-solid fa-water', 'fa-solid fa-wind', 'fa-solid fa-mountain', 'fa-solid fa-sun', 'fa-solid fa-moon', 'fa-solid fa-snowflake', 'fa-solid fa-skull', 'fa-solid fa-crown', 'fa-solid fa-shield-halved', 'fa-solid fa-hat-wizard', 'fa-solid fa-dungeon', 'fa-solid fa-scroll', 'fa-solid fa-book', 'fa-solid fa-potion', 'fa-solid fa-ring', 'fa-solid fa-gem', 'fa-solid fa-hammer', 'fa-solid fa-axe', 'fa-solid fa-sword', 'fa-solid fa-bow-arrow', 'fa-solid fa-wand-magic-sparkles', 'fa-solid fa-hand-fist', 'fa-solid fa-dragon', 'fa-solid fa-spider', 'fa-solid fa-ghost', 'fa-solid fa-bug']
@@ -255,28 +264,55 @@ export class App implements OnInit {
   objectKeys = Object.keys;
 
   filteredIcons = computed(() => {
+    const allCategories = { ...this.iconCategories, ...this.mtgSetIcons() };
     const term = this.iconSearchTerm().toLowerCase().replace(/[-_\s]/g, '');
     if (!term) {
-      return this.iconCategories;
+      return allCategories;
     }
-    const filtered: { [key: string]: { prefix: string; icons: string[] } } = {};
-    for (const category in this.iconCategories) {
-      const catData = this.iconCategories[category as keyof typeof this.iconCategories];
-      const matchingIcons = catData.icons.filter(icon =>
-        icon.toLowerCase().replace(/[-_\s]/g, '').includes(term)
-      );
-      if (matchingIcons.length > 0) {
-        filtered[category] = { ...catData, icons: matchingIcons };
-      }
+
+    const filtered: { [key: string]: { prefix: string; icons: string[], names?: string[] } } = {};
+
+    for (const category in allCategories) {
+        const catData = allCategories[category as keyof typeof allCategories];
+        const matchingIndices: number[] = [];
+
+        catData.icons.forEach((icon, index) => {
+            let searchableText = '';
+            if (catData.prefix === 'svg-uri') {
+                const match = icon.match(/sets\/([^.]+)\.svg/);
+                const setCode = match ? match[1] : '';
+                const setName = catData.names ? catData.names[index].toLowerCase().replace(/[-_\s]/g, '') : '';
+                searchableText = setCode + setName;
+            } else {
+                searchableText = icon.toLowerCase().replace(/[-_\s]/g, '');
+            }
+
+            if (searchableText.includes(term)) {
+                matchingIndices.push(index);
+            }
+        });
+
+        if (matchingIndices.length > 0) {
+            filtered[category] = {
+                ...catData,
+                icons: matchingIndices.map(i => catData.icons[i]),
+                names: catData.names ? matchingIndices.map(i => catData.names![i]) : undefined,
+            };
+        }
     }
     return filtered;
   });
 
   constructor() {
-    this.sanitizer = inject(DomSanitizer);
     effect(() => {
       const pack = this.activePack();
       this.setupSlotControls(pack);
+    });
+
+    effect(() => {
+        if (this.isTagEditorVisible()) {
+            this.loadSetIcons();
+        }
     });
 
     document.addEventListener('mousemove', (event) => {
@@ -355,13 +391,15 @@ export class App implements OnInit {
         public cards!: Dexie.Table<CardDocument, string>;
         public packs!: Dexie.Table<PackHistory, string>;
         public tags!: Dexie.Table<Tag, string>;
+        public sets!: Dexie.Table<ScryfallSet, string>;
 
         constructor() {
           super('TrappistDB');
-          this.version(8).stores({
+          this.version(9).stores({
             cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords, *tags',
             packs: 'id, &name, isDeleted',
-            tags: 'id, &name, &icon'
+            tags: 'id, &name, &icon',
+            sets: 'id, name'
           });
         }
       }
@@ -622,20 +660,38 @@ export class App implements OnInit {
     }
   }
 
+  async clearSetData() {
+    if (!confirm('Are you sure you want to delete all cached set data? It will be re-downloaded the next time you open the tag editor.')) return;
+    this.isLoading.set(true);
+    this.status.set('Deleting set data...');
+    try {
+        await this.db.sets.clear();
+        this.status.set('All set data has been deleted.');
+        this.mtgSetIcons.set({}); // Clear from UI
+    } catch (error) {
+        this.status.set('Error clearing set data.');
+        console.error('Error clearing set data:', error);
+    } finally {
+        this.isLoading.set(false);
+    }
+  }
+
   async clearAllData() {
-    if (!confirm('Are you sure you want to delete ALL card, pack, and tag data? This cannot be undone.')) return;
+    if (!confirm('Are you sure you want to delete ALL card, pack, tag, and set data? This cannot be undone.')) return;
     this.isLoading.set(true);
     this.status.set('Deleting all local data...');
     try {
         await this.db.cards.clear();
         await this.db.packs.clear();
         await this.db.tags.clear();
+        await this.db.sets.clear();
         this.status.set('All local data deleted. Ready to proceed.');
         this.dataExists.set(false);
         this.cardCount.set(0);
         this.selectedFile.set(null);
         this.packs.set([]);
         this.tags.set([]);
+        this.mtgSetIcons.set({});
         this.fetchBulkDataOptions();
     } catch (error) {
         this.status.set('Error clearing all data.');
@@ -1088,6 +1144,95 @@ export class App implements OnInit {
     }
   }
 
+  private async loadSetIcons() {
+    if (!this.db?.sets) return;
+
+    try {
+        const setsCount = await this.db.sets.count();
+        if (setsCount === 0) {
+            this.status.set('Fetching MTG set data from Scryfall...');
+            const response = await fetch('https://api.scryfall.com/sets');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch sets: ${response.statusText}`);
+            }
+            const result = await response.json();
+            const setsData: ScryfallSet[] = result.data.filter((s: any) => s.set_type !== 'memorabilia');
+            await this.db.sets.bulkAdd(setsData);
+            this.updateIconPickerWithSets(setsData);
+            this.status.set('Ready to build.');
+        } else {
+            const setsData: ScryfallSet[] = await this.db.sets.toArray();
+            this.updateIconPickerWithSets(setsData);
+        }
+    } catch (error) {
+        console.error('Failed to load MTG set icons:', error);
+        if (error instanceof Error) this.status.set(`Error: ${error.message}`);
+    }
+  }
+
+  private updateIconPickerWithSets(sets: ScryfallSet[]) {
+    const setsByType: { [key: string]: ScryfallSet[] } = {};
+    for (const set of sets) {
+        if (!setsByType[set.set_type]) setsByType[set.set_type] = [];
+        setsByType[set.set_type].push(set);
+    }
+
+    const setIconCategories: { [key: string]: { prefix: string; icons: string[], names: string[] } } = {};
+    const categoryNames: { [key: string]: string } = {
+        core: 'MTG Sets: Core',
+        expansion: 'MTG Sets: Expansion',
+        masters: 'MTG Sets: Masters',
+        commander: 'MTG Sets: Commander',
+        funny: 'MTG Sets: Funny',
+        promo: 'MTG Sets: Promo',
+        token: 'MTG Sets: Token',
+        starter: 'MTG Sets: Starter',
+        box: 'MTG Sets: Box Set',
+        draft_innovation: 'MTG Sets: Draft Innovation',
+        masterpiece: 'MTG Sets: Masterpiece',
+        alchemy: 'MTG Sets: Alchemy'
+    };
+
+    const sortedSetTypes = Object.keys(setsByType).sort();
+
+    for (const setType of sortedSetTypes) {
+        const categoryName = categoryNames[setType] || `MTG Sets: ${setType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+        const setsInType = setsByType[setType].filter(set => set.card_count > 0);
+
+        const iconsMap = new Map<string, string[]>(); // Map<icon_svg_uri, set_names[]>
+        for (const set of setsInType) {
+            if (!iconsMap.has(set.icon_svg_uri)) {
+                iconsMap.set(set.icon_svg_uri, []);
+            }
+            iconsMap.get(set.icon_svg_uri)!.push(set.name);
+        }
+
+        if (iconsMap.size > 0) {
+            const icons: string[] = [];
+            const names: string[] = [];
+
+            // Sort by the first set name for a given icon to have a somewhat consistent order
+            const sortedIcons = Array.from(iconsMap.entries()).sort((a, b) => {
+                return a[1][0].localeCompare(b[1][0]);
+            });
+
+            for (const [icon, setNames] of sortedIcons) {
+                icons.push(icon);
+                names.push(setNames.sort().join(', '));
+            }
+
+            setIconCategories[categoryName] = {
+                prefix: 'svg-uri',
+                icons,
+                names
+            };
+        }
+    }
+
+    this.mtgSetIcons.set(setIconCategories);
+  }
+
+
   selectTagForEditing(tag: Tag | null) {
     this.selectedTag.set(tag ? {...tag} : null); // Edit a copy
   }
@@ -1224,7 +1369,7 @@ export class App implements OnInit {
       const remoteTagLookups = allTags
         .filter(t => t.type === 'remote' && t.cached_card_names)
         .map(tag => ({
-          icon: tag.icon,
+          id: tag.id,
           nameSet: new Set(tag.cached_card_names)
         }));
 
@@ -1268,14 +1413,14 @@ export class App implements OnInit {
               }
 
               if (match) {
-                  newTags.add(tag.icon);
+                  newTags.add(tag.id);
               }
           }
 
           // B. Apply remote tags based on cached names
-          for (const { icon, nameSet } of remoteTagLookups) {
-              if (nameSet.has(card.name)) {
-                  newTags.add(icon);
+          for (const remoteTag of remoteTagLookups) {
+              if (remoteTag.nameSet.has(card.name)) {
+                  newTags.add(remoteTag.id);
               }
           }
 
@@ -1412,9 +1557,9 @@ export class App implements OnInit {
     return `{ci-${sortedIdentity.toLowerCase()}}`;
   }
 
-  public getTagTooltip(icon: string): string {
-    const tag = this.tagMap().get(icon);
-    if (!tag) return icon;
+  public getTagTooltip(tagId: string): string {
+    const tag = this.tagIdMap().get(tagId);
+    if (!tag) return tagId;
     let tooltip = `${tag.name}`;
     if (tag.category) tooltip += `\nCategory: ${tag.category}`;
     if (tag.description) tooltip += `\n${tag.description}`;
@@ -1485,16 +1630,12 @@ export class App implements OnInit {
     this.closeIconPicker();
   }
 
-  getIconHtml(icon: string | undefined): SafeHtml {
-    if (!icon) {
-      return this.sanitizer.bypassSecurityTrustHtml('<span></span>');
-    }
-    if (icon.startsWith('fa-')) {
-      return this.sanitizer.bypassSecurityTrustHtml(`<i class="${icon}"></i>`);
-    }
-    if (icon.startsWith('ms-')) {
-      return this.sanitizer.bypassSecurityTrustHtml(`<i class="ms ${icon}"></i>`);
-    }
-    return this.sanitizer.bypassSecurityTrustHtml(`<span>${icon}</span>`);
+  public getIconType(icon: string | undefined): 'fa' | 'ms' | 'svg' | 'emoji' {
+    if (!icon) return 'emoji';
+    if (icon.startsWith('fa-')) return 'fa';
+    if (icon.startsWith('ms-')) return 'ms';
+    if (icon.startsWith('https://svgs.scryfall.io/sets/')) return 'svg';
+    return 'emoji';
   }
 }
+

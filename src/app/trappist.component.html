@@ -120,6 +120,10 @@
               <mat-icon>label_off</mat-icon>
               <span>Clear Tag Data</span>
             </button>
+            <button mat-menu-item (click)="clearSetData()">
+              <mat-icon>collections_bookmark</mat-icon>
+              <span>Clear Set Data</span>
+            </button>
             <mat-divider></mat-divider>
             <button mat-menu-item (click)="clearAllData()">
               <mat-icon color="warn">warning</mat-icon>
@@ -146,9 +150,16 @@
               <mat-list>
                 @for(tag of tags(); track tag.id) {
                   <mat-list-item (click)="selectTagForEditing(tag)" [class.selected]="selectedTag()?.id === tag.id">
-                      <div matListItemIcon class="tag-icon-display" [innerHTML]="getIconHtml(tag.icon)"></div>
-                      <div matListItemTitle>{{ tag.name }}</div>
-                      <div matListItemLine>{{tag.type}}</div>
+                    <div matListItemIcon class="tag-icon-display">
+                      @switch (getIconType(tag.icon)) {
+                        @case ('fa') { <i [class]="tag.icon"></i> }
+                        @case ('ms') { <i class="ms {{tag.icon}}"></i> }
+                        @case ('svg') { <img [src]="tag.icon" class="svg-icon" alt="Set Icon"> }
+                        @case ('emoji') { <span>{{ tag.icon }}</span> }
+                      }
+                    </div>
+                    <div matListItemTitle>{{ tag.name }}</div>
+                    <div matListItemLine>{{tag.type}}</div>
                   </mat-list-item>
                 }
               </mat-list>
@@ -161,7 +172,14 @@
                     <div class="icon-picker-field">
                       <span class="icon-label">Icon:</span>
                       <button mat-stroked-button (click)="openIconPicker()">
-                        <span class="selected-icon-display" [innerHTML]="getIconHtml(tag.icon)"></span>
+                        <span class="selected-icon-display">
+                           @switch (getIconType(tag.icon)) {
+                            @case ('fa') { <i [class]="tag.icon"></i> }
+                            @case ('ms') { <i class="ms {{tag.icon}}"></i> }
+                            @case ('svg') { <img [src]="tag.icon" class="svg-icon" alt="Set Icon"> }
+                            @case ('emoji') { <span>{{ tag.icon }}</span> }
+                          }
+                        </span>
                          Choose Icon
                       </button>
                     </div>
@@ -309,8 +327,17 @@
                                 @if(pack.cards[slotIndex]; as card) {
                                     <!-- Filled Slot -->
                                     <div class="tags-cell">
-                                      @for(tagIcon of card.tags; track tagIcon) {
-                                          <span class="card-tag" [matTooltip]="getTagTooltip(tagIcon)" [innerHTML]="getIconHtml(tagIcon)"></span>
+                                      @for(tagId of card.tags; track tagId) {
+                                        @if(tagIdMap().get(tagId); as tag) {
+                                          <span class="card-tag" [matTooltip]="getTagTooltip(tagId)">
+                                            @switch (getIconType(tag.icon)) {
+                                              @case ('fa') { <i [class]="tag.icon"></i> }
+                                              @case ('ms') { <i class="ms {{tag.icon}}"></i> }
+                                              @case ('svg') { <img [src]="tag.icon" class="svg-icon" alt="Set Icon"> }
+                                              @case ('emoji') { <span>{{ tag.icon }}</span> }
+                                            }
+                                          </span>
+                                        }
                                       }
                                     </div>
                                     <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
@@ -437,9 +464,16 @@
           <div class="icon-category">
             <h4>{{ category }}</h4>
             <div class="icon-grid">
-              @for (icon of filteredIcons()[category].icons; track icon) {
-                <button mat-icon-button (click)="selectIcon(icon)" [matTooltip]="icon">
-                  <span [innerHTML]="getIconHtml(icon)"></span>
+              @for (icon of filteredIcons()[category].icons; track icon; let i = $index) {
+                <button mat-icon-button (click)="selectIcon(icon)" [matTooltip]="(filteredIcons()[category].prefix === 'svg-uri' && filteredIcons()[category].names) ? filteredIcons()[category].names![i] : icon">
+                  <span>
+                    @switch (getIconType(icon)) {
+                      @case ('fa') { <i [class]="icon"></i> }
+                      @case ('ms') { <i class="ms {{icon}}"></i> }
+                      @case ('svg') { <img [src]="icon" class="svg-icon" alt="Set Icon"> }
+                      @case ('emoji') { <span>{{ icon }}</span> }
+                    }
+                  </span>
                 </button>
               }
             </div>
