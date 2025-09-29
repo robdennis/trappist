@@ -1,0 +1,145 @@
+<mat-card class="content-card tag-editor">
+    <mat-card-header>
+        <mat-card-title>Tag Editor</mat-card-title>
+    </mat-card-header>
+    <mat-card-content class="tag-editor-content">
+      <div class="tag-list-container">
+        <div class="tag-list-actions">
+            <button mat-stroked-button (click)="addNewTag()"><mat-icon>add</mat-icon> New Tag</button>
+            <button mat-stroked-button (click)="exportTags()"><mat-icon>download</mat-icon> Export</button>
+            <button mat-stroked-button (click)="triggerTagsImport()"><mat-icon>upload</mat-icon> Import</button>
+            <input type="file" class="hidden-file-input" #tagsImporter accept=".json" (change)="importTags($event)">
+        </div>
+        <mat-list class="tag-list">
+          @for(tag of tags(); track tag.id) {
+            <mat-list-item (click)="selectTagForEditing(tag)" [class.selected]="selectedTag()?.id === tag.id">
+              <div matListItemIcon class="tag-icon-display">
+                @switch (getIconType(tag.icon)) {
+                    @case ('fa') { <i [class]="tag.icon"></i> }
+                    @case ('ms') { <i class="ms {{tag.icon}}"></i> }
+                    @case ('svg') { <img [src]="tag.icon" class="svg-icon" alt="Set Icon"> }
+                    @case ('emoji') { <span>{{ tag.icon }}</span> }
+                }
+              </div>
+              <div matListItemTitle>{{ tag.name }}</div>
+              <div matListItemLine>{{tag.type}}</div>
+            </mat-list-item>
+          }
+        </mat-list>
+      </div>
+      <div class="tag-details-container">
+        @if (selectedTag(); as tag) {
+          <div class="tag-form">
+              <mat-form-field><mat-label>Name</mat-label><input matInput [(ngModel)]="tag.name"></mat-form-field>
+
+                <div class="icon-picker-field">
+                  <span class="icon-label">Icon:</span>
+                  <button mat-stroked-button (click)="openIconPicker()">
+                    <span class="selected-icon-display">
+                        @switch (getIconType(tag.icon)) {
+                        @case ('fa') { <i [class]="tag.icon"></i> }
+                        @case ('ms') { <i class="ms {{tag.icon}}"></i> }
+                        @case ('svg') { <img [src]="tag.icon" class="svg-icon" alt="Set Icon"> }
+                        @case ('emoji') { <span>{{ tag.icon }}</span> }
+                        }
+                    </span>
+                      Choose Icon
+                  </button>
+                </div>
+
+                <mat-form-field><mat-label>Category</mat-label><input matInput [(ngModel)]="tag.category"></mat-form-field>
+                <mat-form-field><mat-label>Description</mat-label><textarea matInput [(ngModel)]="tag.description"></textarea></mat-form-field>
+                <mat-form-field><mat-label>Tag Type</mat-label>
+                    <mat-select [(ngModel)]="tag.type">
+                    <mat-option value="local">Local</mat-option>
+                    <mat-option value="remote">Remote (Scryfall)</mat-option>
+                    </mat-select>
+                </mat-form-field>
+
+                @if(tag.type === 'local') {
+                    <div class="local-query-builder">
+                        <h4>Local Query</h4>
+                        <mat-form-field>
+                            <mat-label>Query JSON</mat-label>
+                            <textarea matInput cdkTextareaAutosize #autosize="cdkTextareaAutosize" [ngModel]="tag.query | json" (ngModelChange)="updateTagQuery($event)"></textarea>
+                        </mat-form-field>
+                    </div>
+                }
+                @if(tag.type === 'remote') {
+                    <div class="remote-query-builder">
+                        <h4>Remote Scryfall Query</h4>
+                        <mat-form-field><mat-label>Scryfall Query</mat-label><input matInput [(ngModel)]="tag.scryfall_query"></mat-form-field>
+                        <button mat-stroked-button (click)="cacheRemoteTag(tag.id)" [disabled]="isLoading()">
+                           <mat-icon>cloud_sync</mat-icon> Cache Card Names
+                        </button>
+                        <span>Cached Names: {{ tag.cached_card_names?.length || 0 }}</span>
+                    </div>
+                }
+
+              <div class="tag-form-actions">
+                <button mat-stroked-button (click)="selectTagForEditing(null)">Cancel</button>
+                <button mat-raised-button color="primary" (click)="saveSelectedTag()">Save Tag</button>
+                <button mat-stroked-button color="warn" (click)="deleteTag(tag.id)">Delete</button>
+              </div>
+          </div>
+        } @else {
+          <div class="no-tag-selected">
+            <p>Select a tag to edit, or create a new one.</p>
+            <button mat-flat-button color="primary" (click)="applyAllTags()" [disabled]="isLoading() || !!taggingProgress()">
+              <mat-icon>sync</mat-icon> Clear and Re-apply All Tags
+            </button>
+             @if(taggingProgress(); as progress) {
+                <div class="tag-progress-container">
+                  <h4>{{ progress.status }}</h4>
+                  @if(progress.status !== 'Complete!') {
+                    <mat-progress-bar mode="determinate" [value]="(progress.processedTags / progress.totalTags) * 100"></mat-progress-bar>
+                  }
+                  <div class="progress-details">
+                    <span>Processed: <strong>{{ progress.processedTags }} / {{ progress.totalTags }}</strong></span>
+                    <span>Elapsed: <strong>{{ progress.elapsedTime }}</strong></span>
+                  </div>
+                </div>
+              }
+          </div>
+        }
+      </div>
+    </mat-card-content>
+</mat-card>
+
+@if (isIconPickerVisible()) {
+  <div class="icon-picker-overlay" (click)="closeIconPicker()">
+    <div class="icon-picker-dialog" (click)="$event.stopPropagation()">
+      <div class="icon-picker-header">
+        <h3>Select an Icon</h3>
+        <mat-form-field appearance="outline" class="icon-search-field">
+          <mat-label>Search Icons</mat-label>
+          <input matInput [ngModel]="iconSearchTerm()" (ngModelChange)="iconSearchTerm.set($event)">
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+        <button mat-icon-button (click)="closeIconPicker()"><mat-icon>close</mat-icon></button>
+      </div>
+      <div class="icon-picker-content">
+        @for (category of objectKeys(filteredIcons()); track category) {
+          <div class="icon-category">
+            <h4>{{ category }}</h4>
+            <div class="icon-grid">
+              @for (icon of filteredIcons()[category].icons; track icon; let i = $index) {
+                <button mat-icon-button (click)="selectIcon(icon)" [matTooltip]="(filteredIcons()[category].names) ? filteredIcons()[category].names![i] : icon">
+                  <span>
+                    @switch (getIconType(icon)) {
+                      @case ('fa') { <i [class]="icon"></i> }
+                      @case ('ms') { <i class="ms {{icon}}"></i> }
+                      @case ('svg') { <img [src]="icon" class="svg-icon" alt="Set Icon"> }
+                      @case ('emoji') { <span>{{ icon }}</span> }
+                    }
+                  </span>
+                </button>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}
+

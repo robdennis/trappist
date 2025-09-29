@@ -1,0 +1,209 @@
+:host {
+    display: block;
+}
+
+.tag-editor-content {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    min-height: 400px;
+}
+
+.tag-list-container {
+    border-right: 1px solid #e0e0e0;
+    padding-right: 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.tag-list-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.tag-details-container {
+    padding-left: 16px;
+}
+
+.tag-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tag-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.mat-list-item.selected {
+    background-color: rgba(0,0,0,0.08);
+}
+
+.local-query-builder, .remote-query-builder {
+    border: 1px solid #e0e0e0;
+    padding: 16px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.no-tag-selected {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    color: #757575;
+    gap: 16px;
+}
+
+.tag-progress-container {
+    margin-top: 24px;
+    padding: 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    width: 100%;
+    box-sizing: border-box;
+
+    h4 {
+        margin-top: 0;
+        margin-bottom: 12px;
+    }
+
+    .progress-details {
+        margin-top: 12px;
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.9em;
+        color: #616161;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+}
+
+.icon-picker-field {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 8px 0;
+    .icon-label {
+        font-size: 0.9em;
+        color: #666;
+    }
+    .selected-icon-display {
+        font-size: 1.5em;
+        width: 28px;
+        text-align: center;
+        margin-right: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        .svg-icon {
+            width: 24px;
+            height: 24px;
+        }
+    }
+}
+
+.tag-icon-display {
+    font-size: 1.5em;
+    width: 24px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    .svg-icon {
+        width: 20px;
+        height: 20px;
+        filter: invert(1);
+    }
+}
+
+.icon-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1002;
+}
+
+.icon-picker-dialog {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 11px 15px -7px rgba(0,0,0,.2), 0 24px 38px 3px rgba(0,0,0,.14), 0 9px 46px 8px rgba(0,0,0,.12);
+}
+
+.icon-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e0e0e0;
+    h3 {
+        margin: 0;
+    }
+    .icon-search-field {
+        flex-grow: 1;
+        margin: 0 24px;
+    }
+}
+
+.icon-picker-content {
+    overflow-y: auto;
+    h4 {
+        margin-top: 16px;
+        margin-bottom: 8px;
+        font-weight: 500;
+    }
+    .icon-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    button {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        span {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .ms, .fa-solid, .fa-brands {
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .svg-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        span > span { // For Emojis
+            font-size: 24px;
+        }
+    }
+}
