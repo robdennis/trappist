@@ -162,11 +162,11 @@
 @if (hoveredCard(); as card) {
   <div class="card-image-preview" [style.left.px]="mousePos().x + 20" [style.top.px]="mousePos().y + 20" [class.rotated]="card.layout === 'split'">
     @if (card.image_uris?.normal) {
-      <img [src]="card.image_uris.normal" [alt]="card.name">
+      <img [src]="card.image_uris?.normal" [alt]="card.name">
     } @else if (card.card_faces) {
       @for (face of card.card_faces; track $index) {
         @if(face.image_uris?.normal){
-          <img [src]="face.image_uris.normal" [alt]="face.name">
+          <img [src]="face.image_uris?.normal" [alt]="face.name">
         }
       }
     }

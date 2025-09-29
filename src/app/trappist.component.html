@@ -80,7 +80,7 @@
                         [pack]="pack"
                         [tags]="tags()"
                         [isDirty]="provisionalChanges().has(pack.id)"
-                        (packUpdated)="handlePackUpdate($event)"
+                        (packChange)="handlePackUpdate($event)"
                         (savePack)="savePack($event)"
                         (discardChanges)="discardPackChanges($event)"
                         (removePack)="removePack($event)">
