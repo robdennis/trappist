@@ -1,17 +1,15 @@
 import { Injectable } from '@angular/core';
+import Dexie, { Table } from 'dexie';
 import { CardDocument, PackHistory, ScryfallSet, Tag } from './models';
-
-// Dexie is loaded globally from index.html, so we declare it here.
-declare var Dexie: any;
 
 @Injectable({
   providedIn: 'root'
 })
 export class DatabaseService extends Dexie {
-  cards!: Dexie.Table<CardDocument, string>;
-  packs!: Dexie.Table<PackHistory, string>;
-  tags!: Dexie.Table<Tag, string>;
-  sets!: Dexie.Table<ScryfallSet, string>;
+  cards!: Table<CardDocument, string>;
+  packs!: Table<PackHistory, string>;
+  tags!: Table<Tag, string>;
+  sets!: Table<ScryfallSet, string>;
 
   constructor() {
     super('TrappistDB');
@@ -28,18 +26,10 @@ export class DatabaseService extends Dexie {
   }
 
   async storeCardData(jsonData: any): Promise<number> {
-    const rawData: CardDocument[] = Array.isArray(jsonData) ? jsonData : jsonData.record;
+    const rawData: CardDocument[] = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);
     if (!Array.isArray(rawData)) throw new Error('Data is not in a recognized array format.');
 
-    const promoArtFilteredData = rawData.filter(card => {
-        if (card.card_faces && card.card_faces.length > 1) {
-            const faceNames = new Set(card.card_faces.map(face => face.name));
-            return faceNames.size > 1;
-        }
-        return true;
-    });
-
-    const filteredData = promoArtFilteredData.filter(card => !card.reprint);
+    const filteredData = rawData.filter(card => !card.reprint);
     filteredData.forEach(card => { if (card.name) card.name_lowercase = card.name.toLowerCase(); });
 
     const cardNameGroups = new Map<string, CardDocument[]>();
@@ -51,16 +41,13 @@ export class DatabaseService extends Dexie {
 
     const uniqueDataToStore: CardDocument[] = [];
     for (const cards of cardNameGroups.values()) {
-      if (cards.length === 1) {
-        uniqueDataToStore.push(cards[0]);
-      } else {
         const preferredCard = cards.reduce((prev, curr) => {
           const prevIsExtended = prev.frame_effects?.includes('extendedart') ?? false;
           const currIsExtended = curr.frame_effects?.includes('extendedart') ?? false;
-          return prevIsExtended && !currIsExtended ? curr : prev;
+          if (prevIsExtended && !currIsExtended) return curr;
+          return prev;
         });
         uniqueDataToStore.push(preferredCard);
-      }
     }
 
     await this.cards.clear();
@@ -72,6 +59,7 @@ export class DatabaseService extends Dexie {
   async clearPackData() { return this.packs.clear(); }
   async clearTagData() { return this.tags.clear(); }
   async clearSetData() { return this.sets.clear(); }
+  async getAllCards() { return this.cards.toArray(); }
 
   async searchCards(filterValue: string): Promise<CardDocument[]> {
     const results = await this.cards.where('name_lowercase').startsWithIgnoreCase(filterValue).toArray();
@@ -85,10 +73,17 @@ export class DatabaseService extends Dexie {
   async hydrateCardIds(cardIds: (string | null)[]): Promise<(CardDocument | null)[]> {
     const validIds = cardIds.filter((id): id is string => id !== null);
     if (validIds.length === 0) return Array(cardIds.length).fill(null);
-
     const cardDocs = await this.cards.where('id').anyOf(...validIds).toArray();
     const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.id, c]));
-
     return cardIds.map(id => id ? (cardMap.get(id) || null) : null);
   }
+
+  async hydrateCardNames(cardNames: (string | null)[]): Promise<(CardDocument | null)[]> {
+    const validNames = cardNames.filter((name): name is string => name !== null);
+    if (validNames.length === 0) return Array(cardNames.length).fill(null);
+    const cardDocs: CardDocument[] = await this.cards.where('name').anyOf(...validNames).toArray();
+    const cardMap = new Map<string, CardDocument>(cardDocs.map((c: CardDocument) => [c.name, c]));
+    return cardNames.map(name => name ? (cardMap.get(name) || null) : null);
+  }
 }
+
