@@ -1,0 +1,43 @@
+<mat-card class="content-card tag-editor">
+    <mat-card-header>
+        <mat-card-title>Tag Editor</mat-card-title>
+    </mat-card-header>
+    <mat-card-content class="tag-editor-content">
+      <div class="tag-list-container">
+        <div class="tag-list-actions">
+            <button mat-stroked-button (click)="addNewTag()"><mat-icon>add</mat-icon> New Tag</button>
+            <!-- ... import/export buttons ... -->
+        </div>
+        <mat-list>
+          @for(tag of tags(); track tag.id) {
+            <mat-list-item (click)="selectTagForEditing(tag)" [class.selected]="selectedTag()?.id === tag.id">
+              <!-- ... tag item content ... -->
+              <div matListItemTitle>{{ tag.name }}</div>
+            </mat-list-item>
+          }
+        </mat-list>
+      </div>
+      <div class="tag-details-container">
+        @if (selectedTag(); as tag) {
+          <div class="tag-form">
+              <mat-form-field><mat-label>Name</mat-label><input matInput [(ngModel)]="tag.name"></mat-form-field>
+
+              <!-- ... other tag form fields (icon, category, etc) ... -->
+
+              <div class="tag-form-actions">
+                <button mat-stroked-button (click)="selectTagForEditing(null)">Cancel</button>
+                <button mat-raised-button color="primary" (click)="saveSelectedTag()">Save Tag</button>
+              </div>
+          </div>
+        } @else {
+          <div class="no-tag-selected">
+            <p>Select a tag to edit, or create a new one.</p>
+            <button mat-flat-button color="primary">
+              <mat-icon>sync</mat-icon> Clear and Re-apply All Tags
+            </button>
+            <!-- ... tagging progress display ... -->
+          </div>
+        }
+      </div>
+    </mat-card-content>
+  </mat-card>

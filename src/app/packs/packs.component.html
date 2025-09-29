@@ -1,0 +1,96 @@
+@if (pack(); as pack) {
+    <div class="pack-grid-layout">
+      <!-- Left Column: Pack Info -->
+      <div class="pack-info-left">
+         <mat-form-field class="pack-name-input">
+          <mat-label>Pack Name</mat-label>
+          <input matInput [ngModel]="pack.name">
+        </mat-form-field>
+
+        <!-- ... other pack metadata fields ... -->
+
+      </div>
+
+      <!-- Right Column: Card Slots -->
+      <div class="card-slots-right">
+          <div class="pack-header">
+              <h3>
+                  {{ pack.name }}
+                  <!-- ... other header info ... -->
+              </h3>
+          </div>
+
+          <div class="card-slots-grid-container">
+              <div class="slot-labels-column">
+                  @for (slotIndex of getSlotsArray(pack); track slotIndex) {
+                      <div class="slot-label">
+                          <input class="slot-input"
+                                 [ngModel]="getCurrentRevision(pack).slots?.[slotIndex]">
+                      </div>
+                  }
+              </div>
+              <div class="card-drop-list" cdkDropList [cdkDropListData]="pack.cards">
+                  @for (slotIndex of getSlotsArray(pack); track slotIndex) {
+                      <div class="card-row" cdkDrag [cdkDragData]="pack.cards[slotIndex]" [cdkDragDisabled]="!pack.cards[slotIndex]">
+                          <div class="slot-drag-handle" cdkDragHandle>
+                              @if (pack.cards[slotIndex]) {
+                                  <mat-icon>drag_indicator</mat-icon>
+                              }
+                          </div>
+                          @if(pack.cards[slotIndex]; as card) {
+                              <!-- Filled Slot -->
+                              <div class="tags-cell">
+                                @for(tagId of card.tags; track tagId) {
+                                    @if(tagIdMap().get(tagId); as tag) {
+                                    <span class="card-tag" [matTooltip]="tag.description">
+                                        <!-- icon logic -->
+                                    </span>
+                                    }
+                                }
+                              </div>
+                              <div class="mana-cost-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
+                                  <span [innerHTML]="card.mana_cost | manaSymbol"></span>
+                              </div>
+                              <div class="card-cell" (mouseenter)="showCardImage(card)" (mouseleave)="hideCardImage()">
+                                  <span class="card-name">{{ card.name }}</span>
+                              </div>
+                              <div class="actions-cell">
+                                  <!-- actions -->
+                              </div>
+                          } @else {
+                              <!-- Empty Slot -->
+                              <div class="card-cell empty">
+                                  <mat-form-field class="slot-search-field">
+                                      <input type="text"
+                                          matInput
+                                          [formControl]="slotControls[slotIndex]"
+                                          [matAutocomplete]="auto"
+                                          (focus)="setActiveSlot(slotIndex)">
+                                      <mat-autocomplete #auto="matAutocomplete" [displayWith]="displayFn">
+                                      @for (suggestion of suggestions(); track suggestion.id) {
+                                          <mat-option [value]="suggestion" (mouseenter)="showCardImage(suggestion)" (mouseleave)="hideCardImage()">
+                                            {{ suggestion.name }}
+                                          </mat-option>
+                                      }
+                                      </mat-autocomplete>
+                                  </mat-form-field>
+                              </div>
+                          }
+                      </div>
+                  }
+              </div>
+          </div>
+
+        <!-- ... revision history panel ... -->
+      </div>
+    </div>
+  }
+
+  <!-- Card Preview -->
+  @if (hoveredCard(); as card) {
+    <div class="card-image-preview"
+         [style.left.px]="mousePos().x + 20"
+         [style.top.px]="mousePos().y + 20">
+          <img [src]="card.image_uris?.normal" [alt]="card.name">
+    </div>
+  }
