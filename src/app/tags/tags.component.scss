@@ -2,6 +2,18 @@
     display: block;
 }
 
+// Add this class to hide the default file input
+.hidden-file-input {
+    display: none;
+}
+
+.tag-editor-content {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    min-height: 400px;
+}
+
 .tag-editor-content {
     display: grid;
     grid-template-columns: 300px 1fr;
