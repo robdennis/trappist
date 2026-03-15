@@ -42,23 +42,35 @@ export interface Pack extends PackHistory {
     cards: (CardDocument | null)[];
 }
 
+export interface RewardsRelationship {
+  search: string;
+  cost: 1 | 2 | 3;
+  reward: 1 | 2 | 3;
+}
+
+export interface EnablesRelationship {
+  search: string;
+  efficacy: 1 | 2 | 3;
+}
+
+export interface PunishesRelationship {
+  search: string;
+  severity: 1 | 2 | 3;
+}
+
 export interface Tag {
     id: string;
-    name: string;
+    name: string; // Namespaced: "removal::creature::exile"
     icon: string;
     description?: string;
-    category?: string;
-    type: 'local' | 'remote';
-    query?: {
-        field: string;
-        op: 'regex' | 'lt' | 'lte' | 'eq' | 'gte' | 'gt' | 'ne';
-        value: any;
-    };
-    scryfall_query?: string;
-    cached_card_names?: string[];
     created_at: number;
     updated_at: number;
+
+    rewards?: RewardsRelationship[];
+    enables?: EnablesRelationship[];
+    punishes?: PunishesRelationship[];
 }
+
 
 export interface TaggingProgress {
     status: string;

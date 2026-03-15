@@ -2,6 +2,7 @@ import { Component, computed, signal, Output, EventEmitter, ViewChild, ElementRe
 import { CommonModule, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -11,7 +12,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CdkTextareaAutosize, TextFieldModule } from '@angular/cdk/text-field';
-import { Tag, TaggingProgress, ScryfallSet, CardDocument } from '../core/models';
+import { Tag, TaggingProgress, ScryfallSet, RewardsRelationship, EnablesRelationship, PunishesRelationship } from '../core/models';
 import { DatabaseService } from '../core/database.service';
 
 @Component({
@@ -20,7 +21,7 @@ import { DatabaseService } from '../core/database.service';
   imports: [
     CommonModule, FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, JsonPipe,
     MatInputModule, MatListModule, MatIconModule, MatSelectModule, TextFieldModule,
-    MatProgressBarModule, MatTooltipModule
+    MatProgressBarModule, MatTooltipModule, MatButtonToggleModule
   ],
   templateUrl: './tags.component.html',
   styleUrl: './tags.component.scss'
@@ -40,6 +41,9 @@ export class TagsComponent {
   mtgSetIcons = signal<{ [key: string]: { prefix: string; icons: string[], names: string[] } }>({});
 
   objectKeys = Object.keys;
+  levels: (1 | 2 | 3)[] = [1, 2, 3];
+  counter = (i: number) => new Array(i);
+
 
   readonly iconCategories: { [key: string]: { prefix: string; icons: string[], names?: string[] } } = {
     'Font Awesome': { prefix: 'fa-', icons: [
@@ -2138,8 +2142,9 @@ export class TagsComponent {
   selectTagForEditing(tag: Tag | null) { this.selectedTag.set(tag ? {...tag} : null); }
   addNewTag() {
     const newTag: Tag = {
-      id: crypto.randomUUID(), name: 'New Tag', icon: 'fa-solid fa-star', type: 'local',
-      created_at: Date.now(), updated_at: Date.now(), query: { field: 'name', op: 'regex', value: 'keyword' }
+      id: crypto.randomUUID(), name: 'New::Namespace', icon: 'fa-solid fa-star',
+      created_at: Date.now(), updated_at: Date.now(),
+      rewards: [], enables: [], punishes: []
     };
     this.selectTagForEditing(newTag);
   }
@@ -2162,19 +2167,49 @@ export class TagsComponent {
     if (this.selectedTag()?.id === tagId) this.selectTagForEditing(null);
   }
 
-  updateTagQuery(jsonString: string) {
-    const tag = this.selectedTag();
-    if (!tag) return;
-    try {
-      this.selectedTag.set({ ...tag, query: jsonString ? JSON.parse(jsonString) : undefined });
-    } catch (e) { console.error('Invalid JSON for tag query', e); }
+  addRelationship(type: 'rewards' | 'enables' | 'punishes') {
+    this.selectedTag.update(tag => {
+        if (!tag) return tag;
+        switch (type) {
+            case 'rewards':
+                if (!tag.rewards) tag.rewards = [];
+                tag.rewards.push({ search: 'some::search::*', cost: 1, reward: 1 });
+                break;
+            case 'enables':
+                if (!tag.enables) tag.enables = [];
+                tag.enables.push({ search: 'some::search::*', efficacy: 1 });
+                break;
+            case 'punishes':
+                 if (!tag.punishes) tag.punishes = [];
+                tag.punishes.push({ search: 'some::search::*', severity: 1 });
+                break;
+        }
+        return {...tag};
+    });
   }
 
-  async applyAllTags() { /* ... implementation from original app.ts ... */ }
-  async cacheRemoteTag(tagId: string) { /* ... implementation from original app.ts ... */ }
-  exportTags() { /* ... implementation from original app.ts ... */ }
+  removeRelationship(type: 'rewards' | 'enables' | 'punishes', index: number) {
+    this.selectedTag.update(tag => {
+        if (!tag) return tag;
+        switch (type) {
+            case 'rewards':
+                tag.rewards?.splice(index, 1);
+                break;
+            case 'enables':
+                tag.enables?.splice(index, 1);
+                break;
+            case 'punishes':
+                tag.punishes?.splice(index, 1);
+                break;
+        }
+        return {...tag};
+    });
+  }
+
+  async applyAllTags() { /* ... implementation needed ... */ }
+  exportTags() { /* ... implementation needed ... */ }
   triggerTagsImport() { this.tagsImporter.nativeElement.click(); }
-  importTags(event: Event) { /* ... implementation from original app.ts ... */ }
+  importTags(event: Event) { /* ... implementation needed ... */ }
   openIconPicker() { this.isIconPickerVisible.set(true); }
   closeIconPicker() { this.isIconPickerVisible.set(false); this.iconSearchTerm.set(''); }
   selectIcon(icon: string) {

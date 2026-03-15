@@ -14,13 +14,6 @@
     min-height: 400px;
 }
 
-.tag-editor-content {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 16px;
-    min-height: 400px;
-}
-
 .tag-list-container {
     border-right: 1px solid #e0e0e0;
     padding-right: 16px;
@@ -32,6 +25,7 @@
     display: flex;
     gap: 8px;
     margin-bottom: 16px;
+    flex-wrap: wrap;
 }
 
 .tag-details-container {
@@ -53,15 +47,6 @@
 
 .mat-list-item.selected {
     background-color: rgba(0,0,0,0.08);
-}
-
-.local-query-builder, .remote-query-builder {
-    border: 1px solid #e0e0e0;
-    padding: 16px;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
 .no-tag-selected {
@@ -134,7 +119,6 @@
     .svg-icon {
         width: 20px;
         height: 20px;
-        filter: invert(1);
     }
 }
 
@@ -217,5 +201,54 @@
         span > span { // For Emojis
             font-size: 24px;
         }
+    }
+}
+
+.relationship-group {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 16px;
+    border-radius: 4px;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    h4 {
+        margin: 0 0 8px 0;
+        font-weight: 500;
+    }
+}
+
+.relationship-item {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+
+    .search-input {
+        flex-grow: 1;
+        min-width: 200px;
+    }
+}
+
+.rating-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .mat-icon {
+        font-size: 18px;
+        height: 18px;
+        width: 18px;
+        line-height: 18px;
+    }
+
+    .mat-button-toggle-group {
+      height: 40px;
+    }
+    .mat-button-toggle {
+        display: flex;
+        align-items: center;
+        gap: 2px;
     }
 }

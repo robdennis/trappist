@@ -19,6 +19,28 @@ export class DatabaseService extends Dexie {
       tags: 'id, &name, &icon',
       sets: 'id, name'
     });
+
+    this.version(10).stores({
+        cards: 'id, &name_lowercase, name, type_line, cmc, *colors, *color_identity, *keywords, *tags',
+        packs: 'id, &name, isDeleted',
+        tags: 'id, &name',
+        sets: 'id, name'
+      }).upgrade(tx => {
+          console.log("Upgrading tags table in database to v10...");
+          return tx.table('tags').toCollection().modify((tag: any) => {
+              delete tag.category;
+              delete tag.type;
+              delete tag.query;
+              delete tag.scryfall_query;
+              delete tag.cached_card_names;
+
+              tag.rewards = tag.paysOff || [];
+              delete tag.paysOff;
+
+              tag.enables = tag.enables || [];
+              tag.punishes = tag.punishes || [];
+          });
+      });
   }
 
   async getCardCount(): Promise<number> {
