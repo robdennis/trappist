@@ -85,3 +85,7 @@ Deploys automatically to GitHub Pages on push to `main` via `.github/workflows/b
 - Font Awesome 6 (free icons) + Mana Symbol fonts for MTG symbols
 - TypeScript 5.9 strict mode
 - SCSS, Prettier (100 char width, single quotes)
+
+## Public Repo
+
+This project is publicly hosted at `robdennis/trappist` and synced from the monorepo via git subtree. GitHub Pages deploys automatically on push to `main` (tests must pass first).
